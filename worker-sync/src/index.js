@@ -403,9 +403,14 @@ function parseDoc(text) {
  * 保证"一次成功推送的副作用"是可控的一小撮行。
  */
 function keepHistory(env, spaceId, version, docText, now) {
+  // ★ 结尾的 .run() 是命门：prepare().bind() 只拼语句、不执行，await 一个语句
+  // 对象等于什么也没干，而且**不报错**。漏掉它的症状是"推送一切正常、版本号
+  // 一直涨、历史版本永远是空的"，查起来能查一整天。
   return env.DB.prepare(
     'INSERT OR REPLACE INTO space_history (space_id, version, doc, created_at) VALUES (?, ?, ?, ?)'
-  ).bind(spaceId, version, docText, now);
+  )
+    .bind(spaceId, version, docText, now)
+    .run();
 }
 
 async function trimHistory(env, spaceId, now, keep, ttlMs) {
