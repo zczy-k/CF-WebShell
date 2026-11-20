@@ -1,19 +1,19 @@
 #:schema
-name = "cf-starport-sync"
+name = "starport-sync"
 main = "src/index.js"
 compatibility_date = "2025-01-01"
 
 # D1 绑定。同步文档整份存一列 JSON，见 schema.sql 里的说明。
 #
 # 部署顺序（第一次）：
-#   npx wrangler d1 create cf-starport-sync
+#   npx wrangler d1 create starport-sync
 #   → 把输出里的 database_id 填到下面
-#   npx wrangler d1 execute cf-starport-sync --remote --file=schema.sql
+#   npx wrangler d1 execute starport-sync --remote --file=schema.sql
 #   npx wrangler secret put BOOTSTRAP_SECRET   # 自己编一串 32 位以上的随机字符
 #   npx wrangler deploy
 [[d1_databases]]
 binding = "DB"
-database_name = "cf-starport-sync"
+database_name = "starport-sync"
 database_id = "REPLACE_WITH_YOUR_DATABASE_ID"
 
 # 不用 KV：KV 免费额度 1000 写/天，而且写入后最多 60 秒才全球可见。

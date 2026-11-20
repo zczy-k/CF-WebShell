@@ -1,4 +1,4 @@
-# CF-Starport —— 星港
+# Starport —— 星港
 
 <img src="docs/hero.png" alt="把任意网站装进自己的 App" width="220" align="right">
 

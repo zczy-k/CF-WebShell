@@ -339,7 +339,7 @@ Android `minSdk` 用 Flutter 模板默认的 **24**，正好等于本套插件�
 ## 9. 目录结构
 
 ```
-CF-Starport/
+Starport/
   ARCHITECTURE.md              ← 本文件（设计取舍 / 能力矩阵 / 平台限制）
   README.md                    ← 入口：四条路（出包 / 同步 / 使用 / 架构）
   docs/

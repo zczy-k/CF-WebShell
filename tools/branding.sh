@@ -42,7 +42,7 @@ UPDATE_URL="${UPDATE_URL:-}"
 
 # 抓站点图标时用的 UA。写清楚自己是谁（而不是冒充 Chrome），同时带 compatible 前缀，
 # 让那些只拒绝"空 UA/爬虫 UA"的 CDN 放行；实测 flutter.dev / php.net / wikipedia 都能过。
-UA="Mozilla/5.0 (compatible; StarportBranding/1.0; +https://github.com/zczy-k/CF-Starport)"
+UA="Mozilla/5.0 (compatible; StarportBranding/1.0; +https://github.com/zczy-k/Starport)"
 
 if command -v magick >/dev/null 2>&1; then IM="magick"; elif command -v convert >/dev/null 2>&1; then IM="convert"; else
   # 实测：ubuntu-22.04 的镜像自带 ImageMagick，**ubuntu-24.04 起就没有了**，

@@ -185,7 +185,7 @@ Windows 上跑还需要 **WebView2 运行时**（Win10/11 通常随 Edge 自带�
 | Windows 步骤报 "Python was not found" / 只退 1 不给原因 | 机器上的 `python` 可能只是微软商店的"应用执行别名"占位符 | 流水线不是查 PATH 而是**实跑一遍**探测 `python` / `py -3` / `python3`，挑真能用的那个 |
 | CI 里 `dart analyze --no-fatal-infos` 报 "Cannot negate option" | Dart 3.13 起该选项已移除 | 别传它（本仓库的流水线已修正） |
 | 静态分析报 `const_with_non_const` / 类型错误，本机却看不出来 | 本机没装 Flutter SDK，只跑 `dart format --output=none` 只能验语法，验不出语义 | 以 CI 的 `flutter analyze` 为准；改完 App 层就直接 push 让它验 |
-| 看不到 CI 日志 / 下不了产物 | 未登录时拿不到 Actions 原始日志 | **失败原因无需登录**：流水线把各步骤日志尾部打成 check-run 注解，`GET /repos/zczy-k/CF-Starport/commits/<sha>/check-runs` → `.../check-runs/<id>/annotations` 即可读；产物要登录才能下 |
+| 看不到 CI 日志 / 下不了产物 | 未登录时拿不到 Actions 原始日志 | **失败原因无需登录**：流水线把各步骤日志尾部打成 check-run 注解，`GET /repos/zczy-k/Starport/commits/<sha>/check-runs` → `.../check-runs/<id>/annotations` 即可读；产物要登录才能下 |
 
 ---
 

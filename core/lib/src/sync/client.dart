@@ -519,7 +519,7 @@ class SyncClient {
 
   static String? _ua() {
     // 只用 dart:io，拿不到应用版本；固定一个能看出是谁的 UA 就好。
-    return 'CF-Starport-Sync/1';
+    return 'Starport-Sync/1';
   }
 }
 
