@@ -20,3 +20,14 @@ branding-out/
 
 # 本地 py_compile / import 过 patch_platform.py 会留下这个
 __pycache__/
+
+# Cloudflare Worker 的本地开发产物。
+#
+# .dev.vars 里放的是**明文**的本地密钥（比如 BOOTSTRAP_SECRET），
+# .wrangler/ 里是本地 D1 的一份副本（含真实站点清单）。这两个都不该入库 ——
+# 尤其 .dev.vars，一行 `wrangler dev` 就会生成，然后一条 `git add -A` 就上去了。
+worker-sync/node_modules/
+worker-sync/.wrangler/
+worker-sync/.dev.vars
+worker-sync/.dev.vars.*
+worker-sync/package-lock.json
