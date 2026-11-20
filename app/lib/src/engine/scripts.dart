@@ -465,5 +465,87 @@ const String _template = r'''
   document.addEventListener('webkitfullscreenchange', function () {
     reportFullscreen(document.webkitFullscreenElement);
   }, true);
+  // ---- 6) 选区抗塌陷 ------------------------------------------------------
+  // 症状：在网页输入框里拖选一段字，按 Delete / Backspace 只删掉一格。
+  //
+  // 成因：拖选本身没问题（高亮也在），但按键到达页面之前平台视图经历了一次焦点
+  // 往返。按 DOM 规范，元素失焦会把选区塌成插入点、重新聚焦时光标落在末尾 ——
+  // 高亮只是残影，实际选区已经空了，删除就退化成"删一格"。
+  //
+  // 原生侧已经改成不让 Flutter 碰焦点（browser_page 的 ExcludeFocus + 进站前的
+  // releaseInputForPlatformView）。这一层是**不依赖原生时序的兜底**：记住最近一次
+  // 非空选区，在 keydown 这一刻发现选区被塌掉就还原回去，再放行默认行为。
+  // Chromium 的删除动作在 keydown 之后执行，所以这里 setSelectionRange 有效。
+  //
+  // 只在"同一个元素 + 1.5 秒内 + 只救一次"生效，不会干扰正常的一格一格删除。
+  (function () {
+    var FIELD_WINDOW_MS = 1500;
+    var lastEl = null;
+    var lastStart = 0;
+    var lastEnd = 0;
+    var lastAt = 0;
+    var lastRange = null;
+    var lastRangeAt = 0;
+
+    function isField(el) {
+      return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA');
+    }
+
+    function record() {
+      var el = document.activeElement;
+      if (isField(el)) {
+        try {
+          if (el.selectionStart !== null && el.selectionStart !== el.selectionEnd) {
+            lastEl = el;
+            lastStart = el.selectionStart;
+            lastEnd = el.selectionEnd;
+            lastAt = Date.now();
+          }
+        } catch (e) { }
+        return;
+      }
+      var sel = window.getSelection ? window.getSelection() : null;
+      if (sel && sel.rangeCount > 0 && !sel.isCollapsed) {
+        try {
+          lastRange = sel.getRangeAt(0).cloneRange();
+          lastRangeAt = Date.now();
+        } catch (e) { }
+      }
+    }
+
+    // 拖选 / 双击选词 / Shift+方向键，至少会命中这三者之一
+    document.addEventListener('mouseup', record, true);
+    document.addEventListener('select', record, true);
+    document.addEventListener('keyup', record, true);
+
+    document.addEventListener('keydown', function (e) {
+      if (e.key !== 'Backspace' && e.key !== 'Delete') { return; }
+      if (e.altKey || e.ctrlKey || e.metaKey || e.isComposing) { return; }
+
+      var el = e.target;
+      if (isField(el)) {
+        try {
+          if (el.selectionStart === null) { return; }
+          // 选区还在，正常走，别多管闲事
+          if (el.selectionStart !== el.selectionEnd) { return; }
+          if (lastEl !== el || Date.now() - lastAt > FIELD_WINDOW_MS) { return; }
+          el.setSelectionRange(lastStart, lastEnd);
+          lastAt = 0; // 只救一次：救完就忘，避免误删
+        } catch (err) { }
+        return;
+      }
+
+      // 普通文本 / contenteditable
+      var sel = window.getSelection ? window.getSelection() : null;
+      if (!sel || !lastRange) { return; }
+      if (Date.now() - lastRangeAt > FIELD_WINDOW_MS) { return; }
+      if (sel.rangeCount > 0 && !sel.isCollapsed) { return; }
+      try {
+        sel.removeAllRanges();
+        sel.addRange(lastRange);
+        lastRangeAt = 0;
+      } catch (err) { }
+    }, true);
+  })();
 })();
 ''';

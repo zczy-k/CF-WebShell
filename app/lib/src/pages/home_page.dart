@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:webshell_core/webshell_core.dart';
 
+import '../engine/input_handoff.dart';
 import '../state.dart';
 import '../theme.dart';
 import '../widgets/centered.dart';
@@ -77,10 +78,13 @@ class HomePage extends StatelessWidget {
     if (site == null || !context.mounted) return;
     // 站点在表单里就已经写进配置了（见 showAddSiteSheet 的说明），这里只负责打开它。
     //
-    // 进站前先把本页的焦点收掉。表单里刚填过网址/名字，那两个 TextField 很可能还攥着
-    // 焦点；Flutter 要到网页里**第一次 pointer down** 时才做"清焦点"，那一下就被吃掉，
-    // 用户看到的是"输入框第一次点没反应，要点第二次"。
-    FocusScope.of(context).unfocus();
+    // 进站前先把 Flutter 侧的输入状态整体交出去（清焦点 + 关掉 IME 连接 + 让出一帧），
+    // 见 engine/input_handoff.dart。表单里刚填过网址/名字，那两个 TextField 还攥着
+    // 焦点和一条活着的输入连接；不交出去的话，网页里**第一次 pointer down** 会被
+    // Flutter 拿去"清焦点"，用户看到的是"第一次点没反应、要点第二次"，而且第一次
+    // 拖选过程中焦点还会被抢一次，选区随之折叠成末尾光标 —— Delete 就只删一个字。
+    await releaseInputForPlatformView(context);
+    if (!context.mounted) return;
     await Navigator.of(context).push<void>(BrowserPage.route(state, site.id));
   }
 }
@@ -243,11 +247,13 @@ class _SiteCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(AppTheme.radiusCard),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
-          onTap: () {
+          onTap: () async {
             state.openSite(site);
-            // 同上：先把首页的焦点收掉，别让网页里第一次点击花在"清焦点"上。
-            FocusScope.of(context).unfocus();
-            Navigator.of(context).push<void>(BrowserPage.route(state, site.id));
+            // 同上：先把 Flutter 侧的输入状态交出去，别让网页里第一次点击花在"清焦点"上，
+            // 也别让第一次拖选的途中焦点被抢走（否则选区会被折叠成末尾光标）。
+            await releaseInputForPlatformView(context);
+            if (!context.mounted) return;
+            await Navigator.of(context).push<void>(BrowserPage.route(state, site.id));
           },
           onLongPress: () => _siteMenu(context),
           child: Container(
@@ -342,11 +348,12 @@ class _SiteCard extends StatelessWidget {
               ListTile(
                 leading: const Icon(Icons.open_in_new),
                 title: const Text('打开'),
-                onTap: () {
+                onTap: () async {
                   Navigator.of(sheetContext).pop();
                   state.openSite(site);
-                  FocusScope.of(context).unfocus();
-                  Navigator.of(context).push<void>(BrowserPage.route(state, site.id));
+                  await releaseInputForPlatformView(context);
+                  if (!context.mounted) return;
+                  await Navigator.of(context).push<void>(BrowserPage.route(state, site.id));
                 },
               ),
               ListTile(

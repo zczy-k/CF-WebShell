@@ -35,8 +35,23 @@ class BrowserPage extends StatefulWidget {
   final String siteId;
 
   static Route<void> route(ShellState state, String siteId) {
+    // ExcludeFocus 是这一棵子树的"免打扰声明"：进站之后 Flutter 侧不再参与焦点分配，
+    // 焦点完全交给平台视图（WebView2 / Android WebView / WKWebView）。
+    //
+    // 为什么必须这么干：桌面端插件把 WebView 包在一个 `Focus(autofocus: true)` 里，
+    // 并且在 `onPointerDown` 时 `requestFocus()`（还带一次 +50ms 的重试）。这一套在
+    // 鼠标输入上是没问题的，但它会和 Flutter 自己的焦点树抢"谁是焦点"。用户在网页
+    // 输入框里**按下并拖动**选文字的过程中，Flutter 侧抢到/交还焦点会让 DOM 失焦，
+    // 选区被折叠成"末尾光标"，于是接下来的 Delete 只删掉一个字符 —— 这就是"拖选之后
+    // 按删除只删一个字"的根因。双击能行、先点空白再拖选也能行，正是因为那两条路径上
+    // 焦点在拖选开始前就已经稳了，中途不再变。
+    //
+    // 放在 route() 里而不是包住整个 InAppWebView：入口只有这一个，改一行就够，也不会
+    // 让 body 里那两百行整体缩进（那会把 diff 弄成一坨没法 review 的东西）。
     return MaterialPageRoute<void>(
-      builder: (BuildContext _) => BrowserPage(state: state, siteId: siteId),
+      builder: (BuildContext _) => ExcludeFocus(
+        child: BrowserPage(state: state, siteId: siteId),
+      ),
     );
   }
 
