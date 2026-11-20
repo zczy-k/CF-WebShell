@@ -3,6 +3,17 @@ name = "starport-sync"
 main = "src/index.js"
 compatibility_date = "2025-01-01"
 
+# 自定义域。挂在这里的好处是：`wrangler deploy` 一次就把域名绑好，
+# 不用再去后台点 Domains & Routes；换 Worker 名字的时候也不会出现
+# "域名还挂在老 Worker 上、客户端连不上"这种事。
+#
+# 注意：routes 必须是**顶层**键。要是写在 [[d1_databases]] 下面，会被 TOML
+# 吞进那个表里，wrangler 只 warning 一句
+# "Unexpected fields found in d1_databases[0]: routes"，然后域名根本没绑上。
+routes = [
+  { pattern = "starport.zczy6.dpdns.org", custom_domain = true }
+]
+
 # D1 绑定。同步文档整份存一列 JSON，见 schema.sql 里的说明。
 #
 # 部署顺序（第一次）：
@@ -14,7 +25,9 @@ compatibility_date = "2025-01-01"
 [[d1_databases]]
 binding = "DB"
 database_name = "starport-sync"
-database_id = "REPLACE_WITH_YOUR_DATABASE_ID"
+# 这个 uuid 就是线上正在用的那个库（APAC），别再改回占位符了 ——
+# 占位符会让 `wrangler d1 execute --remote` 直接报 Invalid uuid。
+database_id = "4f6150aa-4580-479c-87f5-1e7ca6fb7e28"
 
 # 不用 KV：KV 免费额度 1000 写/天，而且写入后最多 60 秒才全球可见。
 # 同步的"删了必须真删"这条要求容不下那么久的延迟。

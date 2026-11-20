@@ -312,3 +312,55 @@ npx wrangler deploy
 
 网页上改：Worker → Settings → Variables and Secrets，名字和值照抄，类型选 **Text**（不是 Secret）。
 改完要重新 Deploy 一次才生效。
+
+---
+
+## 附：想把 Worker / 数据库改名（改名 = 搬家，不是重命名）
+
+这三样东西的名字**都是不可改的**，只能新建一个、把数据搬过去、再删旧的。
+改名之前先把这段话看完，能省半天：
+
+| 东西 | 能不能直接改名 | 正确做法 |
+| --- | --- | --- |
+| Worker 脚本 | 不能 | 改 `wrangler.toml` 的 `name` → `wrangler deploy` 会新建一个 |
+| D1 数据库 | 不能（API 的 PATCH 只认 `read_replication`，传 `name` 直接 7400 报错） | `d1 create` 新库 → 导出旧库 → 导入新库 → 改 `database_id` |
+| 自定义域 | 可以，跟着部署走 | 在 `wrangler.toml` 里写 `routes = [{ pattern = "...", custom_domain = true }]` |
+
+完整顺序（照着做，中间别跳步）：
+
+```bash
+cd worker-sync
+
+# 1) 先把旧库整份导出（这份文件就是你的全部数据，别删）
+npx wrangler d1 export 旧库名 --remote --output /tmp/migrate.sql
+
+# 2) 建新库，记下输出里的 database_id
+npx wrangler d1 create 新库名
+
+# 3) 先把 wrangler.toml 里的 database_id 改成新库的 uuid，再导入。
+#    这一步漏了会报 Invalid uuid —— 因为文件里还是占位符 / 旧 uuid。
+npx wrangler d1 execute 新库名 --remote --file=/tmp/migrate.sql
+
+# 4) 对一遍行数，两库必须一模一样
+npx wrangler d1 execute 新库名 --remote --command="SELECT COUNT(*) FROM spaces;"
+
+# 5) 把 bootstrap 密钥补到新 Worker 上（密钥值读不出来，只能重设）
+npx wrangler secret put BOOTSTRAP_SECRET --name 新Worker名
+
+# 6) 部署。routes 写在 toml 里，这一步会把自定义域从旧 Worker 上抢过来
+npx wrangler deploy
+
+# 7) 验证通了再删旧的
+curl https://你的域名/v1/health
+npx wrangler delete --name 旧Worker名
+npx wrangler d1 delete 旧库名 -y
+```
+
+两个坑，都踩过：
+
+- **`routes` 必须是 `wrangler.toml` 的顶层键。** 写在 `[[d1_databases]]` 下面会被
+  TOML 吞进那个表，wrangler 只 warning 一句 `Unexpected fields found in
+  d1_databases[0]: routes`，然后域名根本没绑上 —— 部署"成功"，线上还是老 Worker。
+- **`wrangler versions list` 不会列出 `wrangler deploy` 产生的版本。**
+  判断线上到底跑的是哪版，用 `npx wrangler deployments status --name <名字>`，
+  或者直接看 `/v1/health` 返回的 `service` 字段。
