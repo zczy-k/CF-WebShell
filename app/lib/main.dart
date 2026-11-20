@@ -16,6 +16,7 @@ import 'src/desktop/tray_controller.dart';
 import 'src/download_notifier.dart';
 import 'src/startup_update_check.dart';
 import 'src/state.dart';
+import 'src/sync_lifecycle.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -72,6 +73,14 @@ Future<void> main() async {
   // 启动静默更新检查（24h 节流；无 updateUrl / 无新版 / 网络失败全部静默）。
   // 不 await：启动路径不等网络，弹窗与否由它内部等第一帧决定。
   unawaited(runStartupUpdateCheck(state));
+
+  // 同步：注册"回到前台就拉一次"，再让调度器自己排轮询（3 秒后第一轮）。
+  // 没开同步时 SyncService 存在但不干活，这里也不必分支太多。
+  final SyncService? sync = state.sync;
+  if (sync != null) {
+    WidgetsBinding.instance.addObserver(SyncLifecycle(sync.onResume));
+    sync.start();
+  }
 
   runApp(WebShellApp(state: state));
 }

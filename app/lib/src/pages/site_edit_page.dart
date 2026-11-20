@@ -358,7 +358,7 @@ class _SiteEditPageState extends State<SiteEditPage> {
         _hasStoredPassword = true;
       }
 
-      widget.state.siteEdited();
+      widget.state.siteEdited(_site);
       if (mounted) Navigator.of(context).pop();
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -366,11 +366,20 @@ class _SiteEditPageState extends State<SiteEditPage> {
   }
 
   Future<void> _delete() async {
+    // 开了同步的话，这一次删除会传到所有已配对设备上 —— 提示词必须说清楚，
+    // 否则用户在手机上顺手一删，电脑上的网站也跟着没了，会以为是 bug。
+    final bool syncing = widget.state.config.syncConfigured;
     final bool? ok = await showDialog<bool>(
       context: context,
       builder: (BuildContext dialogContext) => AlertDialog(
-        title: const Text('删除站点'),
-        content: Text('把「${_site.displayName}」删掉？已经下载到本机的文件不会被删除。'),
+        title: Text(syncing ? '删除站点（所有设备）' : '删除站点'),
+        content: Text(
+          syncing
+              ? '把「${_site.displayName}」删掉？\n'
+                  '同步已开启，这一删会传到所有已配对的设备上。\n'
+                  '已经下载到本机的文件不会被删除。'
+              : '把「${_site.displayName}」删掉？已经下载到本机的文件不会被删除。',
+        ),
         actions: <Widget>[
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
@@ -378,7 +387,7 @@ class _SiteEditPageState extends State<SiteEditPage> {
           ),
           FilledButton(
             onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('删除'),
+            child: Text(syncing ? '所有设备都删掉' : '删除'),
           ),
         ],
       ),

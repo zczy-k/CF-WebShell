@@ -267,6 +267,35 @@ void main() {
     });
   });
 
+  group('新设备第一次同步', () {
+    // base 空 = 这台设备还没跟这个空间对过账。它本地的偏好只可能是新装默认值，
+    // 而 at 是刚才用本机时钟盖上去的 —— 让它按 at 赢，结果就是"新手机一配对，
+    // 把电脑上设好的省流/并发数全刷回默认"。
+    test('本机的默认偏好不能盖掉远端已经设好的值', () {
+      final SyncDoc local = SyncDoc();
+      local.prefs['loadImages'] = SyncPref(true, 9999); // 默认值，时间戳反而更大
+      final SyncDoc remote = SyncDoc();
+      remote.prefs['loadImages'] = SyncPref(false, 10); // 老设备早先设的
+
+      final SyncMergeResult r =
+          SyncDoc.merge(base: SyncDoc(), local: local, remote: remote);
+      expect(r.doc.prefs['loadImages']!.value, isFalse);
+    });
+
+    test('对过账之后就按时间取新的', () {
+      final SyncDoc base = SyncDoc();
+      base.prefs['loadImages'] = SyncPref(false, 10);
+      final SyncDoc local = SyncDoc();
+      local.prefs['loadImages'] = SyncPref(true, 20); // 用户真的刚改成 true
+      final SyncDoc remote = SyncDoc();
+      remote.prefs['loadImages'] = SyncPref(false, 10);
+
+      final SyncMergeResult r =
+          SyncDoc.merge(base: base, local: local, remote: remote);
+      expect(r.doc.prefs['loadImages']!.value, isTrue);
+    });
+  });
+
   group('白标预置站点不被同步复活', () {
     const Branding branding = Branding(
       presetSites: <PresetSite>[PresetSite(url: kUrlA, name: 'OA')],

@@ -637,6 +637,12 @@ class SyncDoc {
     }
 
     // 偏好设置：每条独立 LWW
+    //
+    // 例外是"这台设备还没跟这个空间对过账"（base 里一条偏好都没有）：那时
+    // 本地的偏好只可能是新装默认值，而它的 at 是刚才用本机时钟盖上去的 ——
+    // 按 at 比大小，结果必然是"新设备一配对，把老设备的设置全刷回默认"。
+    // 这条线上远端赢，本机的默认值等下一次用户真动手时才参与比较。
+    final bool virginBase = base.prefs.isEmpty;
     final List<String> prefKeys = <String>[];
     final Set<String> prefSeen = <String>{};
     for (final Map<String, SyncPref> src in <Map<String, SyncPref>>[
@@ -654,7 +660,7 @@ class SyncDoc {
         out.prefs[k] = r!;
       } else if (r == null) {
         out.prefs[k] = l;
-      } else if (r.at > l.at) {
+      } else if (virginBase || r.at > l.at) {
         out.prefs[k] = r;
       } else {
         out.prefs[k] = l;

@@ -127,6 +127,7 @@ class SyncDeviceInfo {
     required this.createdAtMs,
     required this.lastSeenMs,
     required this.revoked,
+    this.self = false,
   });
 
   final String id;
@@ -134,6 +135,12 @@ class SyncDeviceInfo {
   final int createdAtMs;
   final int lastSeenMs;
   final bool revoked;
+
+  /// 是不是当前正在用的这台设备。
+  ///
+  /// 服务端会带上来，客户端拿它把"移除"按钮藏掉 —— 自己踢自己会被服务端拒
+  /// （`cannot_revoke_self`），不如一开始就不给这个按钮，用户少看一条报错。
+  final bool self;
 
   String get displayName => name.trim().isEmpty ? id : name;
 
@@ -145,6 +152,7 @@ class SyncDeviceInfo {
       createdAtMs: _i(m['createdAt']),
       lastSeenMs: _i(m['lastSeen']),
       revoked: m['revoked'] == true,
+      self: m['self'] == true,
     );
   }
 }
@@ -437,6 +445,8 @@ class SyncClient {
         return '站点太多，超出了单个文档的上限';
       case 'rate_limited':
         return '请求太频繁，稍后会自动重试';
+      case 'cannot_revoke_self':
+        return '这是当前这台设备，不能把自己移出（要停用请点「断开同步」）';
     }
     return code;
   }

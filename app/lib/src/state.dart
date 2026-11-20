@@ -11,6 +11,7 @@ import 'package:webshell_core/webshell_core.dart';
 
 import 'icons.dart';
 import 'paths.dart';
+import 'sync_credentials.dart';
 
 /// `assets/preset.json` 读取或解析失败的原因（null = 正常）。
 ///
@@ -40,6 +41,7 @@ class ShellState extends ChangeNotifier {
     required this.icons,
     required this.secure,
     required this.downloadsFile,
+    this.syncFile,
   });
 
   final Branding branding;
@@ -49,6 +51,20 @@ class ShellState extends ChangeNotifier {
   final IconFetcher icons;
   final LocalSecureStore secure;
   final File downloadsFile;
+
+  /// 同步缓存的落盘位置（`webshell.sync.json`）。为 null = 这个实例不参与同步
+  /// （单测构造走这条路，免得每条用例都要 mock 一次磁盘）。
+  final SyncStateFile? syncFile;
+
+  /// 同步调度器。`config.syncConfigured` 为假时它照样存在，只是不干活 ——
+  /// 这样界面不用到处判空。
+  SyncService? sync;
+
+  /// 正在把远端合并结果写回配置。
+  ///
+  /// 用来掐掉"同步自己引起的改动又触发一次同步"的回音：合并写回配置时如果
+  /// 顺手 `markDirty()`，我们会立刻把刚收到的东西再推回去，两台设备就乒乓起来。
+  bool _writingRemote = false;
 
   /// 引擎的真实 UA（向 WebView 问来的）。下载时带上它，站点才不会把我们当爬虫。
   String? engineUserAgent;
@@ -69,6 +85,17 @@ class ShellState extends ChangeNotifier {
     final Directory dir = await appDataDir();
     final ConfigFile configFile =
         ConfigFile(File(joinPath(dir.path, ConfigFile.defaultFileName)));
+
+    // 同步缓存。**必须在 configFile.load() 之前读**：里面记着"用户亲手删掉的
+    // 白标预置站点地址"，而 load() 会把这一版预置里有、列表里没有的站点补回来。
+    // 顺序反了的话，用户删掉的站点在下次启动就复活了。
+    final SyncStateFile syncFile =
+        SyncStateFile(File(joinPath(dir.path, SyncStateFile.defaultFileName)));
+    final SyncLocalState syncState = syncFile.load();
+    if (syncState.local.suppressed.isNotEmpty) {
+      configFile.suppressedUrls = Set<String>.of(syncState.local.suppressed);
+    }
+
     final ShellConfig config = configFile.load(branding);
 
     if (config.downloadDir == null || config.downloadDir!.isEmpty) {
@@ -118,9 +145,11 @@ class ShellState extends ChangeNotifier {
       // 后者在 Windows 上固定落 %APPDATA%，迁移时会漏掉（详见 local_secure_store.dart）。
       secure: LocalSecureStore(File(joinPath(dir.path, 'secrets.bin'))),
       downloadsFile: File(joinPath(dir.path, 'downloads.json')),
+      syncFile: syncFile,
     );
     downloads.onChanged = (DownloadTask task) => state._onDownloadsChanged();
     state.restoreDownloads();
+    state._initSync(syncState);
     return state;
   }
 
@@ -128,6 +157,9 @@ class ShellState extends ChangeNotifier {
   void dispose() {
     _configTimer?.cancel();
     _downloadsTimer?.cancel();
+    // 先掐定时器：同步的轮询/防抖要是还在跑，dispose 之后它会继续调
+    // notifyListeners，Flutter 会抛 "was used after being disposed"。
+    sync?.dispose();
     downloads.close();
     saveNow();
     saveDownloadsNow();
@@ -177,6 +209,9 @@ class ShellState extends ChangeNotifier {
   void saveSoon() {
     _configTimer?.cancel();
     _configTimer = Timer(const Duration(milliseconds: 400), saveNow);
+    // 设置页里改的偏好（省流、托盘、并发数）都走这里 —— 挂在这儿一处就够了，
+    // 不用在每个开关的 onChanged 里各补一次。
+    _touchSync();
   }
 
   void saveNow() {
@@ -188,23 +223,34 @@ class ShellState extends ChangeNotifier {
   }
 
   /// 站点被改动过（改名、改地址、改头…），存盘并刷新界面。
-  void siteEdited() {
+  ///
+  /// 传 [site] 时顺手把它的 `updatedAtMs` 抬到现在 —— 合并时"两边都改过"靠这个
+  /// 时间戳判先后。不传表示这次改动不参与同步（比如本机图标缓存路径变了，
+  /// `iconPath` 是本地文件路径，本来就不上传）。
+  void siteEdited([SiteProfile? site]) {
+    if (site != null) site.updatedAtMs = nowMs();
     configFile.save(config);
     notifyListeners();
+    if (site != null) _touchSync();
   }
 
   Future<void> addSite(SiteProfile site) async {
     final bool added = config.addSite(site);
+    if (added) site.updatedAtMs = nowMs();
     saveNow();
     notifyListeners();
     // 重复提交（同一个 id 已经在列表里）就不必再抓一次图标了
-    if (added) unawaited(refreshIcon(site));
+    if (added) {
+      _touchSync();
+      unawaited(refreshIcon(site));
+    }
   }
 
   void removeSite(String id) {
     config.removeSite(id);
     saveNow();
     notifyListeners();
+    _touchSync();
   }
 
   /// 打开站点：更新"最近使用"，顺手把它设为当前站点。
@@ -333,6 +379,226 @@ class ShellState extends ChangeNotifier {
     } catch (_) {
       return null;
     }
+  }
+
+  // ------------------------------------------------------------------ 同步
+
+  SecureSyncCredentialStore? _credStoreInstance;
+
+  SecureSyncCredentialStore get _credStore =>
+      _credStoreInstance ??= SecureSyncCredentialStore(secure);
+
+  /// 建好 [SyncService]。只有 [create] 会调它；单测里 [syncFile] 为 null 直接跳过。
+  void _initSync(SyncLocalState cached) {
+    final SyncStateFile? file = syncFile;
+    if (file == null) return;
+    final SyncEngine engine = SyncEngine(
+      config: config,
+      stateFile: file,
+      credentials: _credStore,
+      state: cached,
+      onConfigChanged: _onRemoteApplied,
+    );
+    sync = SyncService(engine: engine, onChanged: notifyListeners);
+  }
+
+  /// 合并结果已经写进 [config]：存盘 + 刷新界面。
+  ///
+  /// 全程把 [_writingRemote] 立起来 —— 这期间任何"配置变了 → 待同步"的路径都要
+  /// 让路，否则会把刚拉下来的东西当成新改动推回去，两台设备开始乒乓。
+  void _onRemoteApplied() {
+    _writingRemote = true;
+    try {
+      configFile.save(config);
+    } catch (_) {
+      // 和 saveNow 一样的道理：写不进去不该让同步整轮失败
+    } finally {
+      _writingRemote = false;
+    }
+    notifyListeners();
+  }
+
+  void _touchSync() {
+    if (_writingRemote) return;
+    sync?.markDirty();
+  }
+
+  /// 设备名。显示在"已配对设备"列表里，用来分清哪台是哪台。
+  String get syncDeviceName {
+    final String os = Platform.isWindows
+        ? 'Windows'
+        : Platform.isAndroid
+            ? 'Android'
+            : Platform.isMacOS
+                ? 'macOS'
+                : Platform.isLinux
+                    ? 'Linux'
+                    : Platform.isIOS
+                        ? 'iOS'
+                        : '设备';
+    return '${branding.appName} · $os';
+  }
+
+  /// 同步总状态（在跑的时候优先显示"运行中"）。
+  SyncStatus get syncStatus {
+    final SyncService? s = sync;
+    if (s == null) return SyncStatus.disabled;
+    if (s.busy) return SyncStatus.running;
+    return s.status;
+  }
+
+  /// 有本机改动还没同步出去。
+  bool get syncPending => sync?.pending ?? false;
+
+  /// 上次同步跑完的时刻（0 = 还没跑过）。
+  int get syncLastRunMs => sync?.lastRunMs ?? 0;
+
+  /// 给界面看的一句话状态。
+  String get syncStatusText {
+    final SyncService? s = sync;
+    switch (syncStatus) {
+      case SyncStatus.disabled:
+        // 已经配好了但这一轮还没跑过 —— 别写成"未开启"，用户会以为开关没生效
+        return config.syncConfigured ? '等待首次同步' : '未开启';
+      case SyncStatus.running:
+        return '正在同步…';
+      case SyncStatus.ok:
+        final SyncRunResult r = s?.lastResult ?? SyncRunResult.disabled;
+        if (r.pushed && r.pulled) return '已同步（本机与其它设备都有改动）';
+        if (r.pushed) return '已上传本机改动';
+        if (r.pulled) return '已接收其它设备的改动';
+        if (r.conflicts > 0) return '已同步（${r.conflicts} 处两边都改过，按时间取新）';
+        return '已是最新';
+      case SyncStatus.offline:
+        return '连不上同步服务，稍后自动重试';
+      case SyncStatus.authFailed:
+        return '这台设备已被移出同步空间，需要重新配对';
+      case SyncStatus.error:
+        return s?.message ?? '同步出错';
+    }
+  }
+
+  /// 第一台设备：用部署时设的密钥开一个空间。返回 null = 成功。
+  Future<String?> syncEnableFirstDevice({
+    required String endpoint,
+    required String bootstrapSecret,
+  }) async {
+    try {
+      final SyncCredentials creds = await SyncClient.bootstrap(
+        endpoint: endpoint,
+        bootstrapSecret: bootstrapSecret,
+        deviceName: syncDeviceName,
+      );
+      await _adoptCredentials(creds);
+      return null;
+    } on SyncException catch (e) {
+      return e.message;
+    } catch (e) {
+      return '开启失败：$e';
+    }
+  }
+
+  /// 新设备：用别人给的配对码换自己的凭证。返回 null = 成功。
+  Future<String?> syncJoinWithCode({
+    required String endpoint,
+    required String code,
+  }) async {
+    try {
+      final SyncCredentials creds = await SyncClient.pair(
+        endpoint: endpoint,
+        code: code,
+        deviceName: syncDeviceName,
+      );
+      await _adoptCredentials(creds);
+      return null;
+    } on SyncException catch (e) {
+      return e.message;
+    } catch (e) {
+      return '配对失败：$e';
+    }
+  }
+
+  /// 收下凭证 → 打开开关 → 立刻同步一轮。
+  Future<void> _adoptCredentials(SyncCredentials creds) async {
+    await _credStore.write(creds);
+    config.syncEnabled = true;
+    config.syncEndpoint = creds.endpoint;
+    config.syncSpaceId = creds.spaceId;
+    saveNow();
+    notifyListeners();
+    // 不 await：界面先回去，结果通过 syncStatusText 反映出来。
+    final SyncService? s = sync;
+    if (s != null) unawaited(s.syncNow(manual: true));
+  }
+
+  /// 最近一次生成的配对码（给设置页弹窗用）。
+  SyncPairCode? syncPairCode;
+
+  /// 生成一次性配对码（默认 10 分钟有效）。返回 null = 成功。
+  Future<String?> syncNewPairCode() async {
+    final SyncCredentials? creds = await _credStore.read();
+    if (creds == null) return '这台设备还没有配对';
+    try {
+      syncPairCode = await SyncClient(creds).newPairCode();
+      return null;
+    } on SyncException catch (e) {
+      return e.message;
+    } catch (e) {
+      return '生成配对码失败：$e';
+    }
+  }
+
+  /// 已配对设备列表（设置页的"管理设备"）。
+  List<SyncDeviceInfo> syncDevices = const <SyncDeviceInfo>[];
+
+  Future<String?> syncLoadDevices() async {
+    final SyncCredentials? creds = await _credStore.read();
+    if (creds == null) return '这台设备还没有配对';
+    try {
+      syncDevices = await SyncClient(creds).devices();
+      notifyListeners();
+      return null;
+    } on SyncException catch (e) {
+      return e.message;
+    } catch (e) {
+      return '读取设备列表失败：$e';
+    }
+  }
+
+  /// 把某台设备踢出同步空间（它下次带令牌来就会被拒）。
+  Future<String?> syncRevokeDevice(String deviceId) async {
+    final SyncCredentials? creds = await _credStore.read();
+    if (creds == null) return '这台设备还没有配对';
+    try {
+      await SyncClient(creds).revoke(deviceId);
+      final String? err = await syncLoadDevices();
+      return err;
+    } on SyncException catch (e) {
+      return e.message;
+    } catch (e) {
+      return '移除设备失败：$e';
+    }
+  }
+
+  /// 手动"立即同步"。
+  Future<SyncRunResult> syncNow() async {
+    final SyncService? s = sync;
+    if (s == null) return SyncRunResult.disabled;
+    return s.syncNow(manual: true);
+  }
+
+  /// 断开同步：清凭证、关开关，但**保留本地缓存**（再打开时能接着合并）。
+  Future<void> syncDisconnect() async {
+    await sync?.engine.disconnect();
+    await _credStore.write(null);
+    syncPairCode = null;
+    syncDevices = const <SyncDeviceInfo>[];
+    config.syncEnabled = false;
+    // 开关已关，顺手把还挂着的轮询掐掉（resetSchedule 在有开关判断的
+    // _schedule 里会先 cancel 再返回），别让定时器空转到 App 退出。
+    sync?.resetSchedule();
+    saveNow();
+    notifyListeners();
   }
 
   // ---------------------------------------------------------------- 下载

@@ -404,11 +404,21 @@ class _SiteCard extends StatelessWidget {
                 title: Text('删除站点', style: TextStyle(color: Theme.of(context).colorScheme.error)),
                 onTap: () async {
                   Navigator.of(sheetContext).pop();
+                  // 同步开着的时候，删站是会传到别的设备上的 —— 提示词要说清，
+                  // 按钮文案也要跟着变，否则用户以为是"只删这台"。
+                  final bool syncing = state.config.syncConfigured;
                   final bool? ok = await showDialog<bool>(
                     context: context,
                     builder: (BuildContext dialogContext) => AlertDialog(
-                      title: const Text('删除站点'),
-                      content: Text('把「${site.displayName}」从这个 App 里删掉？\n已经下载到本机的文件不会被删除。'),
+                      title: Text(syncing ? '删除站点（所有设备）' : '删除站点'),
+                      content: Text(
+                        syncing
+                            ? '把「${site.displayName}」删掉？\n'
+                                '同步已开启，这一删会传到所有已配对的设备上。\n'
+                                '已经下载到本机的文件不会被删除。'
+                            : '把「${site.displayName}」从这个 App 里删掉？\n'
+                                '已经下载到本机的文件不会被删除。',
+                      ),
                       actions: <Widget>[
                         TextButton(
                           onPressed: () => Navigator.of(dialogContext).pop(false),
@@ -416,7 +426,7 @@ class _SiteCard extends StatelessWidget {
                         ),
                         FilledButton(
                           onPressed: () => Navigator.of(dialogContext).pop(true),
-                          child: const Text('删除'),
+                          child: Text(syncing ? '所有设备都删掉' : '删除'),
                         ),
                       ],
                     ),

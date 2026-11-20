@@ -314,6 +314,9 @@ class SyncEngine {
     int finalVersion = remoteVersion;
     final bool remoteAhead = remoteVersion != state.version;
 
+    /// 最后一次见到的**服务端**文档。冲突重试用它 —— 见下面 base 的赋值。
+    SyncDoc remoteLatest = remoteDoc;
+
     // 推的条件：本地相对 base 有改动。远端只是更新、本地没改的话推一遍
     // 内容一样的文档纯属浪费额度（D1 免费额度是按写行数算的）。
     if (dirty) {
@@ -330,6 +333,7 @@ class SyncEngine {
         if (latest == null) {
           throw SyncException('同步冲突但服务端没返回文档');
         }
+        remoteLatest = latest;
         remoteVersion = put.version;
         merged = SyncDoc.merge(
           base: state.base,
@@ -349,7 +353,13 @@ class SyncEngine {
     if (configChanged) onConfigChanged?.call();
 
     // 6) 记账
-    state.base = merged.doc.copy();
+    //
+    // **推失败时 base 必须是服务端那一版，不能是 merged。**
+    // 要是写成 merged，下一轮的 dirty 会算成"本地和 base 一样"= 没改动 → 永远
+    // 不再推，本机这几条改动就静静地丢了。改成记服务端版本，dirty 依然为真，
+    // 下一轮（几十秒后）会带着新的远端再合一次再推。
+    final bool pushFailed = dirty && !pushed;
+    state.base = pushFailed ? remoteLatest.copy() : merged.doc.copy();
     state.local = merged.doc.copy();
     state.version = pushed ? finalVersion : remoteVersion;
     final int seen = merged.doc.maxAt;
@@ -366,7 +376,10 @@ class SyncEngine {
       configChanged: configChanged,
       pushed: pushed,
       pulled: remoteAhead || configChanged,
-      message: pushed || remoteAhead ? '已同步' : '',
+      // 冲突重试用完了还没推上去：东西都在本机，下一轮会再试，别让用户以为丢了。
+      message: pushFailed
+          ? '别处改得太频繁，本机改动稍后重试'
+          : (pushed || remoteAhead ? '已同步' : ''),
     );
   }
 
