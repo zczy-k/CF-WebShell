@@ -20,7 +20,10 @@ import 'doc.dart';
 /// 同步相关的错误。故意只有一个类型 —— UI 上统一显示"同步失败：xxx"就够，
 /// 用户不需要区分 HTTP 层和业务层的差别。
 class SyncException implements Exception {
-  SyncException(this.message, {this.status = 0});
+  // const：字段全是 final、默认值也是常量，本来就该是 const。
+  // 不加的后果是真栽过一次 —— app 里 `throw const SyncException(...)` 编译报
+  // const_with_non_const，而本机没有 Flutter SDK，这错只有 CI 才能撞出来。
+  const SyncException(this.message, {this.status = 0});
 
   final String message;
 
