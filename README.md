@@ -104,7 +104,7 @@ cd core && dart pub get && dart test
 cd app && flutter pub get
 flutter run -d windows      # 或 -d <安卓设备>
 
-# 界面流程测试（3 个用例，几秒钟，不需要设备；不联网）
+# 界面流程测试（14 个用例，几秒钟，不需要设备；不联网）
 cd app && flutter test
 ```
 
