@@ -2,7 +2,8 @@
 
 这份文档给**要改这堆代码**的人看：鉴权模型、接口契约、历史版本、额度、为什么不选 KV、改之前的注意事项。
 
-只想部署起来用 → [README](README.md)（命令行）或 [DEPLOY.md](DEPLOY.md)（网页点点点）。
+只想部署起来用 → [DEPLOY.md](DEPLOY.md)（网页点点点，推荐）或
+[DEPLOY-CLI.md](DEPLOY-CLI.md)（命令行 / 改名搬家）。
 
 ---
 
@@ -114,4 +115,4 @@ KV 免费额度是 **1000 写/天**，而且写进去之后最多 60 秒才全�
 
 ---
 
-[← 回 README](README.md) · [部署（网页）](DEPLOY.md) · [壳的架构](../ARCHITECTURE.md)
+[← 回 README](README.md) · [部署（网页）](DEPLOY.md) · [部署（命令行）](DEPLOY-CLI.md) · [壳的架构](../ARCHITECTURE.md)

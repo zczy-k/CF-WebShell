@@ -5,14 +5,16 @@
 
 相关文档：
 
-- [**DEPLOY.md**](DEPLOY.md) —— 部署教程（网页点点点，推荐）；自定义域名是默认路线，不是可选项
+- [**DEPLOY.md**](DEPLOY.md) —— 网页部署教程（点点点，推荐，不用装工具）
+- [DEPLOY-CLI.md](DEPLOY-CLI.md) —— 命令行部署、改名搬家、踩过的坑
 - [**INTERNALS.md**](INTERNALS.md) —— 内部细节：鉴权模型、接口、历史版本、额度、改代码前必读
 
 ---
 
-## 部署（命令行版）
+## 部署（命令行速查）
 
 > 不想碰命令行 → [DEPLOY.md](DEPLOY.md)，全程浏览器点，约 10 分钟。
+> 命令行完整版（改名搬家、踩坑）→ [DEPLOY-CLI.md](DEPLOY-CLI.md)。
 
 需要 Node.js 18+，和 [Cloudflare 账号](https://dash.cloudflare.com)。
 
