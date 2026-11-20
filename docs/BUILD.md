@@ -100,10 +100,23 @@ CI 上只有一个 `logo` 框，按写法自动分派：`http(s)://` 开头 → 
 
 ## 三、签名（重要）
 
-CI 打的是 **debug keystore 签名**的 release 包，能侧载安装、能正常使用，但**不能上架应用商店**，
-而且和别的机器打的同包名包互相覆盖安装会失败。要正式签名：把 keystore 放进仓库 Secrets，
-在生成的 `android/app/build.gradle(.kts)` 里加 `signingConfigs` 并让 `release` 用它
-（这几行得在 `build.yml` 的 Android job 里加，因为 `android/` 是 CI 现生成的）。
+CI 打的是 **release 包 + 仓库自带证书签名**，能侧载安装、能正常使用。签名材料按这个顺序挑：
+
+| 优先级 | 来源 | 什么时候用 |
+| --- | --- | --- |
+| 1 | GitHub Secrets：`ANDROID_KEYSTORE_BASE64`（jks 的 base64）+ `ANDROID_KEYSTORE_PASSWORD` + `ANDROID_KEY_ALIAS` + `ANDROID_KEY_PASSWORD` | 想用自己的证书（上架、换机迁移） |
+| 2 | 仓库里的 `branding/release.jks` | 默认。口令 `starport-release`，别名留空（里面只有一条） |
+| 3 | Flutter 模板的 debug keystore | 上面两个都没有时的兜底，只适合自己临时装 |
+
+`branding/release.jks` 的证书指纹（SHA-256）：
+
+```
+E9:D5:01:93:3C:77:69:65:94:19:3D:90:52:27:E2:C7:60:30:80:1E:47:6B:1E:01:13:AD:07:BA:FF:ED:68:8D
+```
+
+> **换证书 = 换了签名身份**：同包名、不同证书的两个包**互相覆盖安装会失败**（安卓报「应用未安装」）。
+> 要换证书就得先卸载旧包，或者干脆连包名（`app_id`）一起换。
+> 想把签名换回「上一版那套」也一样 —— 认证身份变了，用户端只能卸载重装。
 
 ---
 
