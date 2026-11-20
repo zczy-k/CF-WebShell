@@ -1,0 +1,24 @@
+-- 无注释版建表脚本（给 Cloudflare 网页控制台用）
+--
+-- 为什么不直接用 schema.sql：那份带大量中文注释和 "--" 行，在网页控制台的
+-- 输入框里粘贴偶尔会粘不全/粘不进去，控制台就回一句
+-- "No SQL statements detected."（它没读到任何可执行语句，不是 SQL 有错）。
+-- 这份只有 8 条语句、每条独占一行、没有任何注释，肉眼能数清楚有没有粘全。
+--
+-- 内容和 schema.sql 完全等价，都是 IF NOT EXISTS，重复执行不会报错。
+
+CREATE TABLE IF NOT EXISTS spaces (id TEXT PRIMARY KEY, created_at INTEGER NOT NULL, version INTEGER NOT NULL DEFAULT 0, doc TEXT NOT NULL DEFAULT '{}', updated_at INTEGER NOT NULL DEFAULT 0);
+
+CREATE TABLE IF NOT EXISTS devices (id TEXT PRIMARY KEY, space_id TEXT NOT NULL, name TEXT NOT NULL DEFAULT '', token_hash TEXT NOT NULL UNIQUE, created_at INTEGER NOT NULL, last_seen INTEGER NOT NULL DEFAULT 0, revoked INTEGER NOT NULL DEFAULT 0);
+
+CREATE INDEX IF NOT EXISTS idx_devices_space ON devices (space_id);
+
+CREATE TABLE IF NOT EXISTS pair_codes (code TEXT PRIMARY KEY, space_id TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, used INTEGER NOT NULL DEFAULT 0);
+
+CREATE INDEX IF NOT EXISTS idx_pair_expires ON pair_codes (expires_at);
+
+CREATE TABLE IF NOT EXISTS space_history (space_id TEXT NOT NULL, version INTEGER NOT NULL, doc TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY (space_id, version));
+
+CREATE INDEX IF NOT EXISTS idx_history_created ON space_history (space_id, created_at);
+
+CREATE TABLE IF NOT EXISTS rate (key TEXT PRIMARY KEY, count INTEGER NOT NULL DEFAULT 0, window_start INTEGER NOT NULL DEFAULT 0);

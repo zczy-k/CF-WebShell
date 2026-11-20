@@ -13,12 +13,12 @@
    👉 https://dash.cloudflare.com/sign-up
 
 2. 你手上有这两份东西（都在项目里，打开就能复制）
-   - `worker-sync/schema.sql` —— 建表用
+   - `worker-sync/schema-plain.sql` —— 建表用（**无注释版，推荐用这个**）
    - `worker-sync/src/index.js` —— 程序本体
 
    打不开本地文件的话，用这两个网址（打开就是纯文本，Ctrl+A 全选、Ctrl+C 复制）：
 
-   - https://raw.githubusercontent.com/zczy-k/CF-WebShell/main/worker-sync/schema.sql
+   - https://raw.githubusercontent.com/zczy-k/CF-WebShell/main/worker-sync/schema-plain.sql
    - https://raw.githubusercontent.com/zczy-k/CF-WebShell/main/worker-sync/src/index.js
 
 ---
@@ -42,13 +42,28 @@ Storage & Databases  →  D1 SQL Database  →  Create database
 
 ## 第 2 步：建表（粘贴一段 SQL）
 
-点刚建好的那个库 → 切到 **Console** 标签。
+点刚建好的那个库 → 切到 **Console**（控制台）标签。
 
-把 `schema.sql` 的**全部内容**粘进去 → 点 **Execute**（或者 Run）。
+> ⚠️ 是 **Console / 控制台**标签，不是「概览」「查询数据」。
+> 概览页只有数字，没有输入框，粘进去什么都不会发生。
+
+**先把光标点进输入框**（点一下空白处，光标开始闪），再 Ctrl+A 全选、Ctrl+V 粘贴。
+最后点 **Execute / 执行**。
+
+用哪一份？**推荐右边的**：
+
+- 左边这份 `schema.sql` 带大量中文注释，粘到网页输入框里偶尔会粘不全
+- 右边 `schema-plain.sql` 是**无注释版**，只有 8 条语句、每条一行，
+  肉眼能数清楚有没有粘全，粘不进去的概率低得多
+
+两份效果完全一样，用哪份都行。
+
+- `worker-sync/schema-plain.sql` ← https://raw.githubusercontent.com/zczy-k/CF-WebShell/main/worker-sync/schema-plain.sql
+- `worker-sync/schema.sql` ← https://raw.githubusercontent.com/zczy-k/CF-WebShell/main/worker-sync/schema.sql
 
 ✅ **做完你会看到**：下面出来一片执行结果，没有红色报错。
 
-回到库的 **Tables** 标签，应该看到 5 张表：
+回到 **概览** 标签（或者刷新一下），**表数量** 应该变成 **5**：
 
 ```
 spaces          devices         pair_codes
@@ -56,6 +71,20 @@ space_history   rate
 ```
 
 > 少一张也没关系，只要没报错就行。这几张表是同步的全部家当。
+
+### 如果提示 `No SQL statements detected.`
+
+这句的意思是：**控制台在输入框里没读到任何一条能执行的语句**。不是 SQL 写错了，
+是它根本没收到内容（或者只收到了一堆注释）。按顺序试：
+
+1. **确认点对了地方** —— 必须是 `库 → 控制台` 那个带输入框的标签。
+   点在「概览」页上是没有任何反应的地方。
+2. **确认输入框里真有字** —— 粘完先别看按钮，先抬眼看一下输入框：
+   里面应该有 `CREATE TABLE` 字样。空的就再点一下输入框、重新粘。
+3. **换 `schema-plain.sql`** —— 短、无注释，粘不全的概率低很多。
+4. **还不行就一条一条来** —— 把 `schema-plain.sql` 里那 8 条，
+   每条单独粘一次、单独点执行。8 次点完也是 5 张表，慢但不挑浏览器。
+
 
 ---
 
@@ -187,6 +216,8 @@ https://你的地址/v1/health
 
 | 你看到的 | 原因 | 怎么办 |
 | --- | --- | --- |
+| 建表时提示 `No SQL statements detected.` | 控制台没读到语句（粘到别处了 / 没粘全） | 见第 2 步下面那一小节，先换 `schema-plain.sql` |
+| 概览里「表数量」还是 0 | 建表没真执行成功 | 回第 2 步重做，确认执行后有一片结果输出 |
 | 网址打不开 / 404 | 没启用 `workers.dev` 子域名 | Worker 页面里点启用，或改用自定义域名 |
 | `/v1/health` 返回 500，写着 `no such table` | 第 2 步没做，或者做在了本地库上 | 回去重做第 2 步，确认是在 D1 的 Console 里执行的 |
 | `/v1/health` 返回 500，别的错 | 第 5 步的绑定没加，或者变量名不是 `DB` | 检查 Bindings 里是不是正好一个 `DB` |
