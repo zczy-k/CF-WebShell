@@ -2,8 +2,12 @@
 
 这份教程是给**不想碰命令行**的人看的。全程在浏览器里点，大约 10 分钟，不用花钱，不用绑银行卡。
 
-做完你会拿到一个网址，形如 `https://starport-sync.你的名字.workers.dev`。
-把这个网址填进软件的「设置 → 同步」里，多设备同步就能用了。
+做完后填进软件的「服务地址」是**你自己的域名**，形如 `https://sync.你的域名.com`。
+本仓库当前线上跑的是 `https://starport.zczy6.dpdns.org`。
+
+⚠️ `*.workers.dev` 在国内基本打不开，**别把它当最终地址**。部署时直接挂自定义域名：
+网页部署照下面第 7 步挂；命令行部署在 `wrangler.toml` 顶层写 `routes`，
+一次 `wrangler deploy` 就把域名绑好（见文末「会命令行的话」）。
 
 ---
 
@@ -149,38 +153,10 @@ Workers & Pages  →  Create  →  Workers  →  Create Worker
 
 ---
 
-## 第 7 步：拿到你的网址
+## 第 7 步：拿网址 —— 直接挂自己的域名，别用 workers.dev
 
-回到 Worker 的首页（Overview），页面上会有一个网址，长这样：
-
-```
-https://starport-sync.你的账号名.workers.dev
-```
-
-**复制下来**。这就是软件要填的「服务地址」。
-
-> 如果提示你还没启用 `workers.dev`，页面上会有一个按钮让你启用/设置子域名，
-> 点一下、随便起个名字就行。
-
-### 先自己验一下（很重要）
-
-浏览器新开一个标签，访问：
-
-```
-https://你的地址/v1/health
-```
-
-✅ **应该看到**：`{"ok":true,"service":"starport-sync","schema":1}`
-
-看到这行就说明服务活了。看到别的（尤其 404 或 500）先别往下走，看最后一节「出问题怎么办」。
-
-### 国内打不开 `workers.dev`？那就挂个自己的域名
-
-这是**国内用户几乎一定会遇到的一步**，不是你做错了什么。
-
-`*.workers.dev` 这个域名在国内基本不可用：浏览器一直转圈、超时、或者 `连接被重置`。
-挂上自己的域名就通了 —— Worker 还是那台 Worker，数据库还是那个数据库，
-只是换了个门牌号。
+Overview 页面上那个 `https://starport-sync.你的账号名.workers.dev` **不要用**：
+国内基本连不上，DNS 被污染、连接被重置。这一步直接挂自定义域名。
 
 需要什么：**一个自己的域名**（任何注册商买的都行，几十块一年）。
 服务器在境外（Cloudflare 边缘节点），所以**不需要备案**。
@@ -192,16 +168,19 @@ https://你的地址/v1/health
 4. **回 Worker 挂域名**：你的 Worker → **Settings** → **Domains & Routes** → **Add** →
    选 **Custom domain** → 填一个子域名，比如 `sync.你的域名.com`
 5. **等证书**：一般 1~3 分钟，页面上那个域名旁边出现一把锁就好了
-6. **验一下**：浏览器打开 `https://sync.你的域名.com/v1/health`，
-   应该还是那行 `{"ok":true,...}`
-7. **回软件改地址**：设置 → 同步 → 点「服务地址」那一行改成新域名
 
-✅ **改完你会看到**：同步状态自己刷新一次，站点没变、配对没丢。
+**这个域名就是软件要填的「服务地址」。** 先自己验一下（很重要）：
 
-> **不用重新配对，也不用重新开同步空间。** 只是换了个地址，空间还是原来那个，
-> 站点清单和历史版本都在。改地址时会立刻用新地址试同步一轮，成不成看状态文字就知道。
->
-> 顺序上建议**先挂域名，再在软件里开启同步** —— 省得配好一堆设备再回头改地址。
+```
+https://sync.你的域名.com/v1/health
+```
+
+✅ **应该看到**：`{"ok":true,"service":"starport-sync","schema":1}`
+
+看到这行就说明服务活了。看到别的（尤其 404 或 500）先别往下走，看最后一节「出问题怎么办」。
+
+> **顺序上建议先挂域名，再在软件里开启同步** —— 省得配好一堆设备再回头改地址。
+> 换域名**不用重新配对，也不用重新开同步空间**，改完地址同步状态自己刷新一次。
 
 
 ---
@@ -248,12 +227,12 @@ https://你的地址/v1/health
 | --- | --- | --- |
 | 建表时提示 `No SQL statements detected.` | 控制台没读到语句（粘到别处了 / 没粘全） | 见第 2 步下面那一小节，先换 `schema-plain.sql` |
 | 概览里「表数量」还是 0 | 建表没真执行成功 | 回第 2 步重做，确认执行后有一片结果输出 |
-| 网址打不开 / 404 | 没启用 `workers.dev` 子域名 | Worker 页面里点启用，或改用自定义域名 |
-| `/v1/health` 一直转圈、超时、连接被重置 | **`workers.dev` 在国内不可用** | 见第 7 步下面那节，挂自己的域名 |
+| 网址打不开 / 404 | 自定义域没绑上，或 `routes` 被写进了 `[[d1_databases]]` | 网页部署看 Settings → Domains & Routes；命令行看 `wrangler.toml` 顶层 `routes` |
+| `/v1/health` 一直转圈、超时、连接被重置 | 还在用 `workers.dev`（国内不可用），或域名证书没签好 | 按第 7 步挂自己的域名；命令行部署看 `wrangler deploy` 输出有没有 `starport.zczy6.dpdns.org (custom domain)` |
 | `/v1/health` 返回 500，写着 `no such table` | 第 2 步没做，或者做在了本地库上 | 回去重做第 2 步，确认是在 D1 的 Console 里执行的 |
 | `/v1/health` 返回 500，别的错 | 第 5 步的绑定没加，或者变量名不是 `DB` | 检查 Bindings 里是不是正好一个 `DB` |
 | 软件里点开启，提示「密钥不对」 | 第 6 步的名字打错了 | 变量名必须正好是 `BOOTSTRAP_SECRET`，全大写 |
-| 软件里点开启，提示「连不上」 | 网址填错，或多了末尾斜杠 | 只填到 `.workers.dev` 为止 |
+| 软件里点开启，提示「连不上」 | 网址填错，或多了末尾斜杠 | 只填域名本身，形如 `https://sync.你的域名.com`，末尾不要带 `/` |
 | 第二台设备配对码说「过期」 | 配对码只有 10 分钟 | 在那台设备上重新点一次「显示配对码」 |
 | 同步了但站点没变 | 还在排队（最多几十秒） | 点一下「立即同步」按钮 |
 | 突然所有站点都没了 | 触发了「大面积删除」保护 | 见下面 |
@@ -280,19 +259,32 @@ https://你的地址/v1/health
 
 ## 附：会命令行的话，这样更快
 
+`wrangler.toml` 里 `database_id` 已经填好线上那个库、`routes` 也已经写好自定义域，
+**不用再手填占位符，也不用去后台挂域名**：
+
 ```bash
 cd worker-sync
 
 npx wrangler login
-npx wrangler d1 create starport-sync
-# 把输出里的 database_id 填进 wrangler.toml
-
 npx wrangler d1 execute starport-sync --remote --file=schema.sql
 npx wrangler secret put BOOTSTRAP_SECRET
 npx wrangler deploy
+# 输出最后一行应该是：starport.zczy6.dpdns.org (custom domain)
 ```
 
 ⚠️ `--remote` 不能漏：漏了就建在本地，线上还是空的。
+
+⚠️ 换成你自己的库时，改 `wrangler.toml` 的 `database_id`；换域名时改顶层 `routes`：
+
+```toml
+routes = [
+  { pattern = "sync.你的域名.com", custom_domain = true }
+]
+```
+
+**`routes` 必须是顶层键**。写在 `[[d1_databases]]` 下面会被 TOML 吞进那个表，
+wrangler 只 warning 一句 `Unexpected fields found in d1_databases[0]: routes`，
+部署显示成功、域名根本没绑上 —— 这是最容易误判的一次坑。
 
 ---
 

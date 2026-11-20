@@ -21,8 +21,9 @@
 另外：每台设备每小时最多 60 次写、每个空间 2000 次；开了空间也没法拿它当免费
 大容量存储刷额度。
 
-**你自己要守住的两件事**：部署密钥别外传；别把 `wrangler.toml` 里的
-`database_id` 和密钥一起提交到公开仓库（这个仓库里的 `database_id` 是占位符）。
+**你自己要守住的两件事**：部署密钥别外传；fork 出去自己部署时把 `wrangler.toml`
+里的 `database_id` 换成自己那个库（当前值 `4f6150aa-…` 对应线上 `starport-sync` 库）。
+密钥用 `wrangler secret put` 单独写，不进仓库。
 
 ---
 
@@ -50,6 +51,9 @@
 ## 三、历史版本（误删的退路）
 
 每次推送**真正写进库之后**，服务端顺手把这一版存进 `space_history`。
+`keepHistory()` 结尾那个 `.run()` 是命门 —— `prepare().bind()` 只拼语句不执行，
+漏了 `.run()` 不报错，症状是「推送一切正常、版本号一直涨、历史版本永远是空的」，
+外面那层 `try/catch` 还会把异常盖住。别再把它优化掉。
 留最近 `HISTORY_KEEP` 版（默认 20），最多留 `HISTORY_TTL_DAYS` 天（默认 7）。
 两个值都在 `wrangler.toml` 的 `[vars]` 里改，改完重新 `deploy` 就生效。
 
