@@ -1,6 +1,6 @@
 name: webshell_core
-description: WebShell 万能壳的纯 Dart 核心 —— 站点档案、配置持久化、URL 规则、下载队列（可在 CI 里直接 dart test）
-version: 0.1.0
+description: 网页坞（WebShell）的纯 Dart 核心 —— 站点档案、配置持久化、URL 规则、下载队列、同步合并内核（可在 CI 里直接 dart test）
+version: 0.2.0
 publish_to: none
 
 environment:

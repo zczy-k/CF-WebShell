@@ -1,5 +1,5 @@
 name: webshell
-description: WebShell 万能壳 —— 把任意网站变成独立 App（不依赖本地浏览器，支持多站点、下载到本地、上传、自定义名字与图标）
+description: 网页坞（WebShell）—— 把任意网站变成独立 App（不依赖本地浏览器，支持多站点、下载到本地、上传、自定义名字与图标、多设备自动同步）
 publish_to: none
 version: 0.2.0+2
 

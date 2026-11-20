@@ -1,0 +1,10 @@
+# 脚本和 CI 配置必须是 LF。
+# 真事：Windows 上 core.autocrlf=true 时，提交进去的 .sh 如果是 CRLF，
+# Linux runner 上第一行就是 "#!/usr/bin/env bash\r"，报错是
+# "bash: ./tools/branding.sh: /usr/bin/env: bad interpreter: No such file or directory"，
+# 看着像权限/路径问题，其实是行尾。这里点名锁死，别靠本地 git 配置的运气。
+*.sh   text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+*.py   text eol=lf
+*.sql  text eol=lf

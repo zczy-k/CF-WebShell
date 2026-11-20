@@ -2,10 +2,11 @@ name: build
 
 # 触发标记：2026-11-20 重跑（UI 改版 9a7b6a2 之后的第一次真机构建）
 
-# 万能壳的构建。两种产物都从这里出：
-#   * 直接 push：打"通用壳"（没有预置站点，用户自己加）—— 用来验证代码能编译、能跑；
-#   * 手动 Run workflow 填参数：打"白标版"（预置站点 + 自己的名字/包名/图标/主题色）。
-# 白标不是另一份代码：只是构建期覆盖 assets/preset.json 与平台图标。
+# 网页坞的构建（仓库名与 Dart 包名里的 WebShell 是内部英文代号，界面上不出现）。
+# 两种产物都从这里出：
+#   * 直接 push：打「通用版」（没有预置站点，用户自己加）—— 用来验证代码能编译、能跑；
+#   * 手动 Run workflow 填参数：打「白标版」（预置站点 + 名字/包名/图标/主题色/版本号）。
+# 白标不是另一份代码：只是构建期覆盖 assets/preset.json、pubspec 的 version 行与平台图标。
 on:
   push:
     paths:
@@ -29,50 +30,53 @@ on:
     # 所以这里锁死 10 个；「更新检查源」改走 Settings → Variables（名 UPDATE_URL）。
     # 以后要加新参数，先合并掉一个旧的，别硬加。
     inputs:
+      # 说明文字都按「留空会怎样」写，别写术语：填表的人是普通用户，不是开发者。
       app_name:
-        description: 'App 名字（安卓桌面图标名 / Windows 窗口标题）。留空 = WebShell'
+        description: 'App 显示名 —— 安卓桌面图标名、Windows 窗口标题、exe 文件名都用它，可以写中文。留空 = 网页坞'
         required: false
         default: ''
       app_id:
-        description: '包名/组织名，例如 com.corp.oa。留空 = dev.webshell.webshell。只影响包名与内部标识，Windows 的 exe 文件名看 app_name'
+        description: '包名/应用 ID，如 com.corp.oa。只影响安卓包名和内部标识，改不了 exe 文件名。留空 = dev.webshell.webshell'
+        required: false
+        default: ''
+      app_version:
+        description: '版本号，如 1.4.0；想自己钉构建号就写 1.4.0+27。只写 1.4.0 时，构建号自动用本次运行号。留空 = 跟随仓库（现在 0.2.0+2）'
         required: false
         default: ''
       preset_url:
-        description: '预置站点地址（单个，白标版入口，例如 oa.corp.com）。留空 = 通用壳。多个站点请用下面的 preset_sites'
+        description: '打开就直达的网址，如 oa.corp.com（没写 https:// 会自动补）。留空 = 空白壳，用户自己加站点'
         required: false
         default: ''
       preset_name:
-        description: '预置站点在列表里显示的名字（配合 preset_url）。留空 = 用域名'
+        description: '上面那个网址在站点列表里显示的名字。留空 = 用域名'
         required: false
         default: ''
       preset_sites:
-        description: '多个预置站点（JSON 数组）：[{"url":"https://a.com","name":"OA"},{"url":"https://b.com","name":"邮箱"}]。填了它优先于 preset_url；一个站点直达，两个及以上进列表。★公开仓库建议改在 Settings→Secrets 配 WL_PRESET_SITES（值同格式），这一框留空。'
+        description: '多个预置站点（JSON 数组）：[{"url":"https://a.com","name":"OA"}]。填了就盖掉 preset_url。★公开仓库别把内网地址写这里，改用 Settings→Secrets 的 WL_PRESET_SITES，这一框留空'
         required: false
         default: ''
       theme_color:
-        description: '主题色 #RRGGBB。留空 = #2962FF'
+        description: '主题色，六位十六进制，如 #2962FF。留空 = #2962FF'
         required: false
         default: ''
-      logo_url:
-        description: '图标图片地址（PNG/JPG/ICO）。留空则看下面两项'
-        required: false
-        default: ''
-      logo_path:
-        description: '仓库里的图标文件路径，例如 branding/logo.png'
+      logo:
+        description: '图标：写 http(s):// 开头就下载它；写别的当仓库里的文件路径（如 branding/logo.png，得先提交进仓库）。PNG/JPG/ICO 都行。留空 = 自动'
         required: false
         default: ''
       auto_icon:
-        description: '没给图标时，自动抓预置站点的 favicon 生成各个尺寸'
+        description: '没有图标时，自动抓预置站点的 favicon 生成全套尺寸'
         required: false
         type: boolean
         default: true
       allow_add_site:
-        description: '白标版是否仍允许用户自己再加站点'
+        description: '装好之后还允不允许用户自己再加站点'
         required: false
         type: boolean
         default: true
       # 第 11 个参数原本在这里（update_url）。为了不撞 10 个的上限，它已经挪到
       # Settings → Variables → UPDATE_URL（值仍是那段 JSON）；secrets 里同名也认。
+      # 同理，原来的 logo_url + logo_path 两个框已经合并成一个 logo（看前缀自动分派），
+      # 空出来的位置给了 app_version。
 
 concurrency:
   group: build-${{ github.ref }}
@@ -121,6 +125,10 @@ jobs:
     env:
       APP_NAME: ${{ github.event.inputs.app_name }}
       APP_ID: ${{ github.event.inputs.app_id }}
+      # 版本号：留空 = 跟随 app/pubspec.yaml；手填的会覆盖它（见 tools/branding.sh）。
+      # BUILD_NUMBER 只在「手填了版本名但没写 +构建号」时用得上 —— 详见脚本里的注释。
+      APP_VERSION_INPUT: ${{ github.event.inputs.app_version }}
+      BUILD_NUMBER: ${{ github.run_number }}
       PRESET_URL: ${{ secrets.WL_PRESET_URL || github.event.inputs.preset_url }}
       PRESET_NAME: ${{ github.event.inputs.preset_name }}
       # 站点地址是私有信息，公开仓库里别往 inputs 里写。
@@ -128,8 +136,8 @@ jobs:
       # 这里有 secret 就优先用它；没配才退回手动输入。
       PRESET_SITES: ${{ secrets.WL_PRESET_SITES || github.event.inputs.preset_sites }}
       THEME_COLOR: ${{ github.event.inputs.theme_color }}
-      LOGO_URL: ${{ github.event.inputs.logo_url }}
-      LOGO_PATH: ${{ github.event.inputs.logo_path }}
+      # LOGO_URL / LOGO_PATH 不在这里写死：由一个独立步骤按前缀拆解后注入
+      # （填链接还是填仓库路径，用户在同一个框里表达，省一个 inputs 名额给版本号）。
       AUTO_ICON: ${{ github.event.inputs.auto_icon || 'true' }}
       ALLOW_ADD_SITE: ${{ github.event.inputs.allow_add_site || 'true' }}
       # 同上：为了守住 10 个 inputs 的上限，更新检查源不再走 inputs。
@@ -148,6 +156,25 @@ jobs:
           sudo apt-get install -y -qq imagemagick fonts-dejavu-core
           (magick -version 2>/dev/null || convert -version) | head -2
 
+      # 一个 logo 框吃两种写法：带 http(s):// 的当远程图片，其余当仓库内路径。
+      # 放这里而不是写在 env 里，是因为 env 只能给死值；而「怎么判断」得跑一次。
+      # 值走 env 传进 shell，不直接内插：${{ }} 内插会被用户填的分号/反引号执行。
+      - name: 拆解图标参数
+        env:
+          LOGO_IN: ${{ github.event.inputs.logo }}
+        run: |
+          L="$(printf '%s' "${LOGO_IN:-}" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+          case "$L" in
+            http://*|https://*)
+              echo "LOGO_URL=$L" >> "$GITHUB_ENV"
+              echo "图标来源：远程链接 $L" ;;
+            '')
+              echo "图标来源：没填，按 preset_url 自动抓" ;;
+            *)
+              echo "LOGO_PATH=$L" >> "$GITHUB_ENV"
+              echo "图标来源：仓库文件 $L" ;;
+          esac
+
       - name: 生成图标与白标配置
         run: |
           # 用 pipefail 才能让 tee 之后仍然按脚本的退出码判定成败
@@ -157,10 +184,10 @@ jobs:
       # 每次构建都把"这一版到底是什么"钉在日志和 Summary 上。
       #
       # 真事：push 触发的运行拿不到任何输入（app_name / preset_sites 全空），
-      # 打出来的必然是"通用壳"——名字 WebShell、一个预置站点都没有；而产物
+      # 打出来的必然是"通用版"——名字 网页坞、一个预置站点都没有；而产物
       # （webshell-android-apk / webshell-windows-x64）每次都被同名覆盖。
       # 用户很容易把 push 那次的文件当成自己手动填参数那次的，然后问
-      # "我明明填了名字，怎么还是 WebShell，还多出别人的站点"。
+      # "我明明填了名字，怎么还是默认名，还多出别人的站点"。
       # 这两条信息（名字 + 预置站点个数）写死在构建页面上，不用再猜。
       - name: 宣布本次产物口径
         shell: bash
@@ -168,6 +195,7 @@ jobs:
           env_of() { grep -m1 "^$1=" "$RUNNER_TEMP/branding/app-id.env" | cut -d= -f2- || true; }
           NAME_EFF="$(env_of APP_NAME_EFFECTIVE)"
           ID_EFF="$(env_of APP_ID_EFFECTIVE)"
+          VER_EFF="$(env_of APP_VERSION_FULL)"
           PRESETS="$(python3 -c 'import json,sys;d=json.load(open(sys.argv[1]));s=d.get("presetSites") or [];s=s or ([d["presetUrl"]] if (d.get("presetUrl") or "").strip() else []);print(len(s))' "$RUNNER_TEMP/branding/preset.json")"
           {
             echo "### 本次产物"
@@ -177,12 +205,14 @@ jobs:
             echo "| 触发方式 | \`${{ github.event_name }}\` |"
             echo "| App 名字 | \`$NAME_EFF\` |"
             echo "| 包名 / 组织 | \`$ID_EFF\` |"
+            echo "| 版本 | \`$VER_EFF\`（显示 \`${VER_EFF%%+*}\`） |"
+            echo "| 短哈希 | \`${GITHUB_SHA:0:7}\` |"
             echo "| 预置站点 | \`$PRESETS\` 个 |"
           } >> "$GITHUB_STEP_SUMMARY"
-          echo "本次构建：名字=$NAME_EFF 包名=$ID_EFF 预置站点=$PRESETS 个（触发=${{ github.event_name }}）"
+          echo "本次构建：名字=$NAME_EFF 包名=$ID_EFF 版本=$VER_EFF 预置站点=$PRESETS 个（触发=${{ github.event_name }}）"
           if [ "$PRESETS" = "0" ]; then
             printf '::warning title=%s::%s\n' \
-              '这次是通用壳，不是白标包' \
+              '这次是通用版，不是白标包' \
               "预置站点 0 个、名字 \"$NAME_EFF\"。push 触发的构建拿不到任何输入，只有手动 Run workflow 并填了 app_name / preset_sites 才是白标包。下载产物前先对一下这里的名字，别把 push 那次的文件当成自己那次的。"
           fi
 
@@ -258,7 +288,21 @@ jobs:
       - name: 读取本次白标参数
         run: |
           cat "$RUNNER_TEMP/branding/app-id.env" >> "$GITHUB_ENV"
-          echo "本次构建：$APP_ID_EFFECTIVE（$APP_NAME_EFFECTIVE）"
+          echo "本次构建：$APP_ID_EFFECTIVE（$APP_NAME_EFFECTIVE）版本 $APP_VERSION_FULL"
+
+      # 版本号必须落到两个地方才算真改了：
+      #   app/pubspec.yaml 的 version 行 → APK 的 versionName / versionCode
+      #     （安卓判"能不能覆盖安装"看 versionCode；只改界面文案没用）
+      #   preset.json 的 appVersion → App 里「关于」页显示什么（branding 那一步已写好）
+      # 只做后者就会出现"关于页写 1.4.0、系统设置里还是 0.2.0"的鬼故事。
+      - name: 写入本次版本号
+        run: |
+          if [ -z "${APP_VERSION_FULL:-}" ]; then
+            echo "没拿到 APP_VERSION_FULL，沿用 pubspec 原值：$(grep -m1 '^version:' pubspec.yaml)"
+            exit 0
+          fi
+          sed -i "s/^version:.*/version: ${APP_VERSION_FULL}/" pubspec.yaml
+          echo "pubspec 版本行已改成：$(grep -m1 '^version:' pubspec.yaml)"
 
       # 仓库里**故意不存** android/ 这一堆生成文件：Gradle 版本、AGP、模板都会随
       # Flutter 升级变化，存进来迟早和 SDK 打架。现生成再拷回来，只留 lib/ 作真相源。
@@ -562,8 +606,10 @@ jobs:
       - name: 重命名产物
         run: |
           mkdir -p "$RUNNER_TEMP/out"
+          # 名字里带上版本名和运行号：同一个 artifact 只留最后一份，
+          # 用户下下来一堆 apk 时靠文件名就能对上是哪一次。
           cp build/app/outputs/flutter-apk/app-release.apk \
-             "$RUNNER_TEMP/out/webshell-${APP_ID_EFFECTIVE}-${{ github.run_number }}.apk"
+             "$RUNNER_TEMP/out/webshell-${APP_ID_EFFECTIVE}-v${APP_VERSION_NAME}-${{ github.run_number }}.apk"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -631,6 +677,24 @@ jobs:
               Add-Content -Path $env:GITHUB_ENV -Value "$($matches[1])=$($matches[2])" -Encoding utf8
             }
           }
+          Write-Host "本次构建：$env:APP_NAME_EFFECTIVE / $env:APP_ID_EFFECTIVE / 版本 $env:APP_VERSION_FULL"
+
+      # 与 Android 同一个理由：pubspec 的 version 行才是"真版本"。
+      # 注意这里不能用 Set-Content -Encoding utf8（PS 5.1 会写 BOM，pub 读 pubspec 时
+      # 可能因为它报格式错），所以直接走 .NET 的 UTF8Encoding($false) 写无 BOM。
+      - name: 写入本次版本号
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:APP_VERSION_FULL)) {
+            Write-Host "没拿到 APP_VERSION_FULL，沿用 pubspec 原值"
+            Select-String -LiteralPath 'pubspec.yaml' -Pattern '^version:'
+            return
+          }
+          $p = 'pubspec.yaml'
+          $text = [System.IO.File]::ReadAllText($p)
+          $text = [regex]::Replace($text, '(?m)^version:.*$', "version: $($env:APP_VERSION_FULL)")
+          [System.IO.File]::WriteAllText($p, $text, (New-Object System.Text.UTF8Encoding($false)))
+          Select-String -LiteralPath $p -Pattern '^version:'
 
       - name: 打开桌面支持
         run: flutter config --enable-windows-desktop
@@ -767,7 +831,7 @@ jobs:
             $safe = $safe.Replace([string]$c, '_')
           }
           $safe = $safe.Trim().TrimEnd('.')
-          if ([string]::IsNullOrWhiteSpace($safe)) { $safe = 'WebShell' }
+          if ([string]::IsNullOrWhiteSpace($safe)) { $safe = '网页坞' }
 
           $target = Join-Path $src ($safe + '.exe')
           if ($old.FullName -ne $target) {
@@ -783,9 +847,11 @@ jobs:
         run: |
           $src = "build\windows\x64\runner\Release"
           if (-not (Test-Path $src)) { throw "没找到产物目录：$src" }
-          $out = "$env:RUNNER_TEMP\webshell-windows-$env:APP_ID_EFFECTIVE.zip"
+          $ver = $env:APP_VERSION_NAME
+          if ([string]::IsNullOrWhiteSpace($ver)) { $ver = '0.0.0' }
+          $out = "$env:RUNNER_TEMP\webshell-windows-$env:APP_ID_EFFECTIVE-v$ver.zip"
           Compress-Archive -Path "$src\*" -DestinationPath $out -CompressionLevel Optimal
-          Write-Host "产物：" (Get-Item $out).Length "bytes"
+          Write-Host "产物：" (Get-Item $out).Name (Get-Item $out).Length "bytes"
 
       - uses: actions/upload-artifact@v4
         with:

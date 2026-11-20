@@ -1,4 +1,4 @@
-# CF-WebShell —— 万能壳
+# CF-WebShell —— 网页坞
 
 <img src="docs/hero.png" alt="把任意网站装进自己的 App" width="220" align="right">
 
@@ -24,14 +24,14 @@
 
 ## 两样东西，一份代码
 
-| | 通用壳 | 白标版 |
+| | 通用版 | 白标版 |
 | --- | --- | --- |
 | 启动后 | 站点列表（空的），自己点"添加站点" | 直接是那个网站，名字/图标/主题色都是它的 |
 | 适合 | 自用浏览器壳、内网多系统入口 | 给客户/同事发一个"专属 App" |
-| 怎么出 | push 就自动打 | Actions → Run workflow，填 9 个参数 |
+| 怎么出 | push 就自动打 | Actions → Run workflow，填 10 个参数 |
 
-白标版不是另开分支 —— 只是构建时覆盖了 `assets/preset.json` 和图标。
-参数说明和图标优先级见 [BUILD.md](docs/BUILD.md)。
+白标版不是另开分支 —— 只是构建时覆盖了 `assets/preset.json`、`pubspec.yaml` 的版本行和图标。
+参数说明、图标优先级、**版本号怎么定**见 [BUILD.md](docs/BUILD.md) §一。
 
 ---
 

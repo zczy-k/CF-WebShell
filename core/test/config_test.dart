@@ -32,7 +32,7 @@ void main() {
 
     test('坏数据回落到默认值而不是抛异常', () {
       final Branding b = Branding.fromJson('这不是个对象');
-      expect(b.appName, 'WebShell');
+      expect(b.appName, '网页坞');
       expect(b.isWhiteLabel, isFalse);
     });
 

@@ -17,6 +17,7 @@
 #
 # 用法（在仓库根目录）：
 #   APP_NAME='公司 OA' APP_ID=com.corp.oa PRESET_URL=oa.corp.com bash tools/branding.sh out
+#   APP_NAME='公司 OA' APP_VERSION_INPUT=1.4.0 bash tools/branding.sh out   # 指定版本号
 set -euo pipefail
 
 # say 放在最前面：下面每一步（包括环境自检）都可能要报一句人话，
@@ -24,7 +25,8 @@ set -euo pipefail
 say() { printf '%s\n' "---- $*"; }
 
 OUT_DIR="${1:-branding-out}"
-APP_NAME="${APP_NAME:-WebShell}"
+# 中文名给用户看，英文代号 WebShell 只留在仓库名和 Dart 包名里（界面上不出现）。
+APP_NAME="${APP_NAME:-网页坞}"
 APP_ID="${APP_ID:-dev.webshell.webshell}"
 PRESET_URL="${PRESET_URL:-}"
 PRESET_NAME="${PRESET_NAME:-}"
@@ -338,12 +340,54 @@ else
   PRESET_SITES_JSON="[]"
 fi
 
-# 版本号单一真相源：app/pubspec.yaml 的 `version: 0.1.0+1`。
-# 构建号（+1）留给平台构建用，preset.json 只带用户可见的 0.1.0。
-# 读不到时退回 0.0.0 —— 版本显示宁缺毋滥，也别让构建挂在这。
-APP_VERSION="$(sed -n 's/^version:[[:space:]]*\([0-9][0-9A-Za-z.\-]*\)\(+[0-9]*\)\{0,1\}$/\1/p' \
-  "$(dirname "$0")/../app/pubspec.yaml" | head -1)"
-[ -n "$APP_VERSION" ] || APP_VERSION="0.0.0"
+# ---------------------------------------------------------------- 5.1) 版本号
+# 两个来源，优先级从高到低：
+#   1) APP_VERSION_INPUT（手动 Run workflow 填的 app_version）
+#   2) app/pubspec.yaml 的 `version:` 行（仓库里的单一真相源）
+#
+# 拆成三个概念，别再混着都叫"版本号"：
+#   版本名  VERSION_NAME  1.4.0   —— 用户在「关于」页看到的，也是 preset.json 的 appVersion
+#   构建号  VERSION_CODE  27      —— 安卓判"能不能覆盖安装"看它，必须只增不减
+#   短哈希  BUILD_SHA     a1b2c3d —— CI 注进 App，用来分辨同一个版本号的不同构建
+#
+# 用户只写 1.4.0 时，构建号自动取本次运行号（BUILD_NUMBER）。
+# 不然同一个版本名反复出包，versionCode 卡着不动，手机会拒绝覆盖安装
+# （提示只有"应用未安装"，不给原因）。想钉死就自己写 1.4.0+27。
+PUBSPEC="$(dirname "$0")/../app/pubspec.yaml"
+PUB_VER_LINE="$(sed -n 's/^version:[[:space:]]*//p' "$PUBSPEC" | head -1)"
+PUB_VERSION_NAME="${PUB_VER_LINE%%+*}"
+PUB_VERSION_CODE=""
+case "$PUB_VER_LINE" in
+  *+*) PUB_VERSION_CODE="${PUB_VER_LINE#*+}" ;;
+esac
+
+APP_VERSION_NAME=""
+APP_VERSION_CODE=""
+if [ -n "${APP_VERSION_INPUT:-}" ]; then
+  IN="$APP_VERSION_INPUT"
+  APP_VERSION_NAME="${IN%%+*}"
+  case "$IN" in
+    *+*) APP_VERSION_CODE="${IN#*+}" ;;
+  esac
+  # 版本名必须是数字开头的点分数字：写成 v1.4 或 1.4 Beta 会在打包阶段炸，
+  # 那时候报错信息离"你填错了版本号"已经很远了，所以在这儿先拦住。
+  if ! printf '%s' "$APP_VERSION_NAME" | grep -Eq '^[0-9]+(\.[0-9]+)*$'; then
+    say "app_version 写得不对：'$IN'。要写成 1.4.0 或 1.4.0+27（数字开头、点分隔；v 前缀和空格都不行）"
+    exit 1
+  fi
+  if [ -n "$APP_VERSION_CODE" ] && ! printf '%s' "$APP_VERSION_CODE" | grep -Eq '^[0-9]+$'; then
+    say "app_version 里的构建号必须是纯数字：'$IN' → '$APP_VERSION_CODE'"
+    exit 1
+  fi
+else
+  APP_VERSION_NAME="${PUB_VERSION_NAME:-0.0.0}"
+  APP_VERSION_CODE="$PUB_VERSION_CODE"
+fi
+[ -n "$APP_VERSION_NAME" ] || APP_VERSION_NAME="0.0.0"
+# 兜到底：既没写 +N 也没有运行号（本地裸跑脚本）时给 0，总比空串写进 pubspec 好。
+[ -n "${APP_VERSION_CODE:-}" ] || APP_VERSION_CODE="${BUILD_NUMBER:-0}"
+APP_VERSION_FULL="${APP_VERSION_NAME}+${APP_VERSION_CODE}"
+say "版本：$APP_VERSION_FULL（关于页显示 $APP_VERSION_NAME）"
 
 # 可选字段：无条件写键。UPDATE_URL 为空时写空串，Dart 侧按 isNotEmpty
 # 判空跳过（空串与缺键等价）——比 heredoc 里拼条件行干净，也没有尾逗号问题。
@@ -357,12 +401,14 @@ cat > "$OUT_DIR/preset.json" <<JSON
   "presetSites": $PRESET_SITES_JSON,
   "allowAddSite": $ADD_SITE_JSON,
   "showAddressBar": true,
-  "appVersion": "$APP_VERSION",
+  "appVersion": "$APP_VERSION_NAME",
   "updateUrl": "$(json_escape "$UPDATE_URL")"
 }
 JSON
 
 # 给后面的构建 job 用（也方便人看这一次到底打的是什么）
+# ★ 版本相关的三行必须在：两个平台 job 靠 APP_VERSION_FULL 去改写
+#   app/pubspec.yaml 的 version 行，那才是 APK/安装包认的真版本。
 cat > "$OUT_DIR/app-id.env" <<ENV
 APP_ID_EFFECTIVE=$APP_ID_EFFECTIVE
 ORG=$ORG_PART
@@ -370,6 +416,9 @@ NAME=$NAME_PART
 SLUG=$NAME_PART
 APP_NAME_EFFECTIVE=$APP_NAME
 PRESET_URL_EFFECTIVE=$PRESET_URL
+APP_VERSION_NAME=$APP_VERSION_NAME
+APP_VERSION_CODE=$APP_VERSION_CODE
+APP_VERSION_FULL=$APP_VERSION_FULL
 ENV
 
 say "产物："
@@ -382,10 +431,10 @@ say "preset.json:"
 # 以前把 preset.json 原文整个打出来，等于把我的站点清单挂到公网上。
 # 要核对内容就看本地生成的 preset.json，或者看构建时填的参数。
 SITE_COUNT="$(python3 -c 'import json,sys;d=json.load(open(sys.argv[1]));s=d.get("presetSites") or [];s=s or ([d["presetUrl"]] if (d.get("presetUrl") or "").strip() else []);print(len(s))' "$OUT_DIR/preset.json")"
-say "  appName=${APP_NAME} appId=${APP_ID_EFFECTIVE} presetSites=${SITE_COUNT} 个（地址不输出）"
+say "  appName=${APP_NAME} appId=${APP_ID_EFFECTIVE} 版本=${APP_VERSION_FULL} presetSites=${SITE_COUNT} 个（地址不输出）"
 
 if [ -n "${GITHUB_ACTIONS:-}" ]; then
   printf '::notice title=%s::%s\n' \
     'preset.json' \
-    "appName=${APP_NAME} appId=${APP_ID_EFFECTIVE} presetSites=${SITE_COUNT} 个；预置地址按公开仓库策略不输出。"
+    "appName=${APP_NAME} appId=${APP_ID_EFFECTIVE} 版本=${APP_VERSION_FULL} presetSites=${SITE_COUNT} 个；预置地址按公开仓库策略不输出。"
 fi

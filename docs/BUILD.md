@@ -8,13 +8,13 @@
 
 ## 一、出包
 
-### A. 通用壳（不用填任何东西）
+### A. 通用版（不用填任何东西）
 
 改 `app/`、`core/`、`tools/` 下的代码并 push 到 `main`（或对这几个目录发 PR），`build` 流水线自动跑，
 产物在 Actions 那次运行的 **Artifacts** 里：
 
-- `webshell-android-apk` → `webshell-<包名>-<构建号>.apk`
-- `webshell-windows-x64` → `webshell-windows-<包名>.zip`
+- `webshell-android-apk` → `webshell-<包名>-v<版本名>-<构建号>.apk`
+- `webshell-windows-x64` → `webshell-windows-<包名>-v<版本名>.zip`
 
 > GitHub 的 Actions 日志和产物**必须登录**才能看/下。
 
@@ -24,28 +24,66 @@
 
 | 输入 | 留空时 | 说明 |
 | --- | --- | --- |
-| `app_name` | `WebShell` | App 显示名。安卓桌面图标名、Windows 窗口标题、**Windows 的 exe 文件名**都用它。**可以中文** |
+| `app_name` | `网页坞` | App 显示名。安卓桌面图标名、Windows 窗口标题、**Windows 的 exe 文件名**都用它。**可以中文** |
 | `app_id` | `dev.webshell.webshell` | 包名/应用 ID，如 `com.corp.oa`。最后一段会规整成合法标识符（小写、字母数字下划线、不以数字开头）。只影响包名与内部标识，**不影响 exe 文件名** |
-| `preset_url` | 无预置站点（= 通用壳） | 预置站点入口，如 `oa.corp.com`、`http://192.168.1.10:8080`。只写域名会自动补 `https://` |
+| `app_version` | 跟随 `app/pubspec.yaml`（现 `0.2.0+2`） | 版本号。怎么填见下面「版本号怎么定」 |
+| `preset_url` | 无预置站点（= 通用版） | 打开就直达的网址，如 `oa.corp.com`、`http://192.168.1.10:8080`。只写域名会自动补 `https://` |
 | `preset_name` | 用域名 | 预置站点在列表里显示的名字 |
+| `preset_sites` | 空 | 多个预置站点，JSON 数组。填了就盖掉 `preset_url`。★公开仓库把内网地址写这儿等于公开它，改用 Settings→Secrets 的 `WL_PRESET_SITES` |
 | `theme_color` | `#2962FF` | 主题色，`#RRGGBB` |
-| `logo_url` | 自动（见下） | 图标图片地址（PNG/JPG/ICO）。⚠️ 必须是**直链**，不能是网页 |
-| `logo_path` | 自动（见下） | 仓库里的图标文件路径。先把图片提交到仓库，再填 `branding/logo.png` |
+| `logo` | 自动（见 §二） | 一个框吃两种写法：`http(s)://…` 开头当远程直链下载；其他当仓库里的文件路径（`branding/logo.png`，需先提交进仓库）。PNG/JPG/ICO 都行 |
 | `auto_icon` | 开 | 没给图标时，抓预置站点的 `apple-touch-icon` / `favicon.ico` / `favicon.png` |
 | `allow_add_site` | 开 | 白标版是否允许用户自己再加站点 |
 
 三个常见用法：
 
 1. **只要一个专属 App**：`app_name=公司OA`、`app_id=com.corp.oa`、`preset_url=oa.corp.com`、`theme_color=#0B6BCB`
-2. **用自己的图标**：再填 `logo_url=https://cdn.corp.com/logo.png`（或把图片提交进仓库后填 `logo_path`）
+2. **用自己的图标**：`logo=https://cdn.corp.com/logo.png`（或把图片提交进仓库后填 `logo=branding/logo.png`）
 3. **内网 http 站点**：`preset_url=http://192.168.1.10:8080` —— 已经默认允许明文 http，不用额外配置
+
+### C. 版本号怎么定（`app_version`）
+
+"版本号"其实是三样东西，混着叫就会出问题：
+
+| | 例子 | 谁在看它 | 谁决定 |
+| --- | --- | --- | --- |
+| **版本名** | `1.4.0` | 用户（关于页）、你自己 | `app_version`，或 `app/pubspec.yaml` |
+| **构建号** | `27` | 安卓系统（判能不能覆盖安装） | `app_version` 里的 `+27`；没写就用本次运行号 |
+| **短哈希** | `a1b2c3d` | 你（分辨同版本号的不同构建） | 自动取 commit sha，构建期注进 App |
+
+规则：
+
+1. **留空** → 跟随 `app/pubspec.yaml` 的 `version:`（现在 `0.2.0+2`）。跟仓库走，最省事。
+2. **只写 `1.4.0`** → 版本名 1.4.0，构建号自动取本次运行号（第 31 次 Run 就是 `1.4.0+31`）。
+   **推荐这么写**：同一个版本名反复出包，构建号也会涨，不会因为 versionCode 卡住而装不上。
+3. **写 `1.4.0+27`** → 两个都钉死，适合"我要跟上次的构建号对齐"。
+4. 版本名必须是**数字开头的点分数字**。`v1.4`、`1.4 Beta` 这种会在 branding 那一步被直接拦下来报错
+   （不会打出怪包，也不会让错误拖到打包阶段才爆）。
+5. 覆盖安装的前提是**同包名 + 新构建号 ≥ 旧构建号**。填了比手机里更小的版本号，
+   安卓会拒绝升级，提示只有一句"应用未安装"，不给原因。
+6. 同一个版本名出两次包完全没关系：关于页显示 `版本 1.4.0 · a1b2c3d`，短哈希不同就能分辨。
+
+对照表：
+
+| 你填 `app_version` | 实际版本 | 关于页显示 |
+| --- | --- | --- |
+| （留空） | `0.2.0+2` | `版本 0.2.0` |
+| `1.4.0` | `1.4.0+31`（第 31 次运行） | `版本 1.4.0 · 3f9a1c7` |
+| `1.4.0+27` | `1.4.0+27` | `版本 1.4.0 · 3f9a1c7` |
+
+> 版本号会写进两个地方：`assets/preset.json`（关于页显示）和 `app/pubspec.yaml` 的 `version:` 行
+> （APK 的 `versionName` / `versionCode`、ZIP 的文件名）。只改前者会出现"关于页写 1.4.0、
+> 手机系统设置里还是 0.2.0"的鬼故事，所以流水线两个都改。
 
 ---
 
 ## 二、图标是怎么定的（优先级从高到低）
 
-1. `logo_path` 指定的仓库文件；
-2. `logo_url` 下载的图片；
+CI 上只有一个 `logo` 框，按写法自动分派：`http(s)://` 开头 → 当远程图片下载；
+其余 → 当仓库里的文件路径。分派之后就按下面的顺序定图标：
+
+1. `logo` 填的仓库文件路径；
+2. `logo` 填的远程图片链接；
 3. `auto_icon=true` 且给了 `preset_url`：先读首页 HTML 里 `<link rel="...icon...">` 声明的图标
    （`apple-touch-icon` 优先 → 其他位图 → `svg` 放最后），拿不到再兜底试站点根目录的
    `apple-touch-icon.png` / `apple-touch-icon-precomposed.png` / `favicon.ico` / `favicon.png`；

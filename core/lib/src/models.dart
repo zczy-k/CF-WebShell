@@ -1,4 +1,4 @@
-/// WebShell 的数据模型：站点档案、Cookie、品牌信息。
+/// 网页坞的数据模型（代码里的 WebShell 是英文代号）：站点档案、Cookie、品牌信息。
 ///
 /// 全是纯数据 + JSON 往返，不含任何平台调用，所以能直接单测。
 library;
@@ -355,7 +355,7 @@ class PresetSite {
 /// 首个启动版本把它落进配置；之后用户改名换图标都不影响它。
 class Branding {
   const Branding({
-    this.appName = 'WebShell',
+    this.appName = '网页坞',
     this.appId,
     this.themeColor = SiteProfile.defaultThemeColor,
     this.presetUrl,
@@ -451,7 +451,7 @@ class Branding {
     if (raw is! Map) return generic;
     final Object? rawUrl = raw['presetUrl'];
     return Branding(
-      appName: _asString(raw['appName']) ?? 'WebShell',
+      appName: _asString(raw['appName']) ?? '网页坞',
       appId: _asString(raw['appId']),
       themeColor: _asInt(raw['themeColor'], SiteProfile.defaultThemeColor),
       presetUrl: rawUrl is String ? normalizeUrl(rawUrl) : null,
