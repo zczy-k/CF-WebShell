@@ -1,7 +1,7 @@
 name: webshell
 description: WebShell 万能壳 —— 把任意网站变成独立 App（不依赖本地浏览器，支持多站点、下载到本地、上传、自定义名字与图标）
 publish_to: none
-version: 0.1.0+1
+version: 0.2.0+2
 
 environment:
   # 依赖下限来自这几个插件：flutter_file_dialog 要 3.44+，url_launcher_android 要 Dart 3.8+。

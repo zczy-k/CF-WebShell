@@ -364,7 +364,7 @@ class Branding {
     this.allowAddSite = true,
     this.showAddressBar = true,
     this.updateUrl,
-    this.appVersion = '0.1.0',
+    this.appVersion = '0.2.0',
   });
 
   final String appName;
@@ -465,7 +465,7 @@ class Branding {
       allowAddSite: _asBool(raw['allowAddSite'], true),
       showAddressBar: _asBool(raw['showAddressBar'], true),
       updateUrl: _asString(raw['updateUrl']),
-      appVersion: _asString(raw['appVersion']) ?? '0.1.0',
+      appVersion: _asString(raw['appVersion']) ?? '0.2.0',
     );
   }
 }

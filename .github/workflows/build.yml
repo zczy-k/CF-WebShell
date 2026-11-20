@@ -507,7 +507,8 @@ jobs:
           set -o pipefail
           for attempt in 1 2 3; do
             echo "===== 第 $attempt 次 flutter build apk ====="
-            if flutter build apk --release 2>&1 | tee "$RUNNER_TEMP/android-build.log"; then
+            if flutter build apk --release \
+                 --dart-define=BUILD_SHA="${{ github.sha }}" 2>&1 | tee "$RUNNER_TEMP/android-build.log"; then
               exit 0
             fi
             if [ "$attempt" = "3" ]; then break; fi
@@ -738,7 +739,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Continue'
-          flutter build windows --release 2>&1 | Tee-Object -FilePath "$env:RUNNER_TEMP\windows-build.log"
+          flutter build windows --release --dart-define=BUILD_SHA="${{ github.sha }}" 2>&1 | Tee-Object -FilePath "$env:RUNNER_TEMP\windows-build.log"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       # 只拷 exe 是不够的：同目录的 flutter_windows.dll 与 data/ 缺一不可，

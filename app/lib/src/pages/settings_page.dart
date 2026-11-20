@@ -24,6 +24,23 @@ class SettingsPage extends StatefulWidget {
 class _SettingsPageState extends State<SettingsPage> {
   ShellState get state => widget.state;
 
+  /// 构建期注入的 commit 短哈希（CI 传 `--dart-define=BUILD_SHA=<sha>`）。
+  ///
+  /// 为什么要这个：这仓库的 `appVersion` 直接取自 `pubspec.yaml` 的 version 行，
+  /// 而它长期停在 0.1.0 没动过 —— 也就是说**从旧到新出过的每一个包，关于页都写
+  /// 0.1.0**。用户拿着一个没有同步功能的老包来问"功能在哪"，光看版本号根本
+  /// 分不出来。带上哈希之后，一眼就能对上是哪次 Actions 的产物。
+  /// 本地 `flutter run` 没传，就是空串，界面当没这回事。
+  static const String _buildSha = String.fromEnvironment('BUILD_SHA');
+
+  static String get _buildTag {
+    if (_buildSha.isEmpty) return '';
+    final String short = _buildSha.length > 7
+        ? _buildSha.substring(0, 7)
+        : _buildSha;
+    return ' · $short';
+  }
+
   bool _checkingUpdate = false;
 
   /// 同步相关操作正在等网络（按钮期间禁掉重复点）。
@@ -240,7 +257,8 @@ class _SettingsPageState extends State<SettingsPage> {
               ListTile(
                 title: Text(branding.appName),
                 subtitle: Text(
-                  '万能壳 ${branding.appVersion}\n'
+                  // 版本号后面那串短哈希是构建期注进来的，用来分辨"哪个包"。
+                  '万能壳 ${branding.appVersion}$_buildTag\n'
                   '${branding.isWhiteLabel ? '专属（白标）版本' : '通用版本'}\n'
                   '引擎：Android 系统 WebView / Windows WebView2',
                 ),
