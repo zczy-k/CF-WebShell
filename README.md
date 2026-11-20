@@ -1,5 +1,7 @@
 # CF-WebShell —— 万能壳
 
+<img src="docs/hero.png" alt="把任意网站装进自己的 App" width="220" align="right">
+
 把**任意网站**装进一个自己的 Android / Windows App 里：翻页、登录、上传、下载都和浏览器一样，
 而且下载直接落到本机。不依赖用户装没装浏览器（用的是系统自带的网页引擎：Android WebView / Windows WebView2）。
 
