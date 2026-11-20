@@ -35,6 +35,10 @@ npx wrangler deploy
 #    输出末行：starport.zczy6.dpdns.org (custom domain)
 ```
 
+后台 Settings → Variables and Secrets 里会看到 8 个变量：1 个 Secret
+（`BOOTSTRAP_SECRET`）加 7 个 Text。那 7 个是 `wrangler.toml` 的 `[vars]` 自动上传的，
+值见文件里的注释；不部署 toml（网页点点点）时它们不会出现，因为代码里有同值默认值兜底。
+
 验证：
 
 ```bash

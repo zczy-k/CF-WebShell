@@ -57,6 +57,12 @@
 留最近 `HISTORY_KEEP` 版（默认 20），最多留 `HISTORY_TTL_DAYS` 天（默认 7）。
 两个值都在 `wrangler.toml` 的 `[vars]` 里改，改完重新 `deploy` 就生效。
 
+**配置有两份，值是同一套**：`wrangler.toml` 的 `[vars]`（命令行 `deploy` 时自动上传，
+后台 Variables and Secrets 里能看到）和 `src/index.js` 里 `intEnv(env.XXX, 默认值)`
+的代码兜底。网页点点点部署不会上传 `[vars]`，走的就是代码兜底，所以不设也能跑。
+两边保持一致是故意的；要长期改就固定走一条路线 —— 命令行 `deploy` 会用 toml
+覆盖后台手动改过的同名变量。
+
 恢复走的是"**把老内容当成一次新推送**"，不是直接覆盖：
 
 - 版本号照样 +1，其它设备下一次 `/v1/head` 一比对就知道该拉了，

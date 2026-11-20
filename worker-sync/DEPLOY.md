@@ -151,6 +151,19 @@ Workers & Pages  →  Create  →  Workers  →  Create Worker
 
 保存。
 
+> **后台那一堆变量是哪来的？** 用命令行 `wrangler deploy` 部署出来的 Worker，
+> Settings → Variables and Secrets 里除了 `BOOTSTRAP_SECRET`，还会多出 7 个：
+> `MAX_DOC_BYTES`、`RATE_WRITES_PER_HOUR`、`RATE_SPACE_PER_HOUR`、`MAX_DEVICES`、
+> `PAIR_TTL_SECONDS`、`HISTORY_KEEP`、`HISTORY_TTL_DAYS`。
+> 不是谁手滑加的 —— 那是 `wrangler.toml` 的 `[vars]` 段，部署时 `wrangler` 自动上传的，
+> 值就是文末「以后想改配置」表里那一行行默认值。
+>
+> **网页点点点部署不会出现这 7 个**，教程主线没让你填，是因为 `src/index.js` 里
+> 每个都有同值的代码默认值（`intEnv(env.XXX, 默认值)`），不设照样跑。不是漏了。
+>
+> ⚠️ 两条路线别混着改：命令行 `wrangler deploy` 会用 toml 里的 `[vars]` **覆盖**
+> 后台手动改过的同名变量。以后要长期改，就固定走其中一条。
+
 ---
 
 ## 第 7 步：拿网址 —— 直接挂自己的域名，别用 workers.dev
@@ -291,6 +304,7 @@ wrangler 只 warning 一句 `Unexpected fields found in d1_databases[0]: routes`
 ## 附：以后想改配置
 
 `wrangler.toml` 里那些数字（比如历史版本留几版 `HISTORY_KEEP`）**不填也能用**，程序里有默认值：
+这张表同时就是线上 `wrangler deploy` 上传的那 7 个变量的值 —— 表里写什么，后台就显示什么。
 
 | 配置 | 默认 | 意思 |
 | --- | --- | --- |
