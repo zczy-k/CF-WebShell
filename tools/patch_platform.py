@@ -92,7 +92,7 @@ def patch_manifest(path: str, label: str) -> None:
 # 为什么走注入而不是加 Flutter 插件：通知要贴着下载状态机（core 的
 # DownloadManager）走，而 MethodChannel + 纯平台 API 的 Notification 就够用，
 # 引 local_notification / flutter_background_service 这类插件反而带一串
-# 传递依赖，AGP/Gradle 两头都可能翻车。见 shell/app/lib/src/download_notifier.dart。
+# 传递依赖，AGP/Gradle 两头都可能翻车。见 app/lib/src/download_notifier.dart。
 # ---------------------------------------------------------------------------
 
 _KT_SERVICE = '''package {PKG}
@@ -107,7 +107,7 @@ import android.os.Build
 import android.os.IBinder
 
 /**
- * 下载前台服务（由 shell/tools/patch_platform.py 构建期注入）。
+ * 下载前台服务（由 tools/patch_platform.py 构建期注入）。
  *
  * 本体不承载下载（下载在 Flutter/Dart 层），职责只有两件：
  *  1. 进度通知：单一通知槽（NOTIFICATION_ID），内容随下载状态更新；
@@ -445,7 +445,7 @@ def patch_windows_cmake(path: str) -> None:
 
     inject = (
         "\n"
-        "# === 构建期注入（CI）：见 shell/tools/patch_platform.py 同名函数 ===\n"
+        "# === 构建期注入（CI）：见 tools/patch_platform.py 同名函数 ===\n"
         "# MSVC 14.51 起 /await 与 <experimental/coroutine> 是硬错误，上游插件还在用，\n"
         "# 用微软自己给的宏压住（放在 project() 之后，插件目标才能继承到）。\n"
         "add_compile_definitions(%s)\n" % _COROUTINE_SILENCE_MACRO

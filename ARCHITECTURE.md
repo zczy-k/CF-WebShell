@@ -59,7 +59,7 @@
 ┌──────────────────────────▼────────────────────────────────────┐
 │ 壳逻辑层 webshell_core（纯 Dart，零 Flutter / 零第三方依赖）      │
 │  站点档案 · 配置持久化 · URL 规整 · 请求头组装 · 下载队列/续传     │
-│  → 可 dart test，80 个用例                                        │
+│  → 可 dart test，126个用例                                        │
 └──────────────────────────┬────────────────────────────────────┘
 ┌──────────────────────────▼────────────────────────────────────┐
 │ 引擎适配层（每个平台一份薄实现）                                 │
@@ -138,7 +138,7 @@ document-start 注入，只做四件事，且都对失败宽容（单页脚本�
 
 **下载不交给引擎**，交给壳自己的下载器：带 Cookie、UA、Referer、自定义头，
 支持 `Range` 断点续传、暂停/继续/取消/重试、并发闸门、失败自动重试。
-下载器本体在 `webshell_core/lib/src/download.dart`，传输层是可注入接口（`FileDownloadTransport`），
+下载器本体在 `core/lib/src/download.dart`，传输层是可注入接口（`FileDownloadTransport`），
 所以断点续传 / 文件名解析 / 并发 / 取消这些逻辑**有单测**，不依赖 UI 和平台。
 
 **路径 A：普通文件下载（覆盖绝大多数）**
@@ -273,10 +273,10 @@ document-start 注入，只做四件事，且都对失败宽容（单页脚本�
 > 写着「下载」）、`class="download-btn"`、`Save File`、带名字的 `download` 属性都被接管（名字也带
 > 过来），blob 走分片通道；Android 配置下只接管 `a[download]`、二进制扩展名与 blob；
 > **两端都不动** `.html`、`.jpg`、`.mp4`、`.txt`、`.csv` 与普通链接（没有误伤）。
-> 步骤见 `shell/app/test/bridge_script_test.dart` 顶部注释。
+> 步骤见 `app/test/bridge_script_test.dart` 顶部注释。
 
 > 另一个 Windows 相关的构建事实：`flutter_inappwebview_windows` 在 CMake 配置阶段要用 **nuget**
-> 拉 WebView2 / WIL / nlohmann.json 的 SDK，所以 CI 里显式确保 nuget 可用（见 `shell-build.yml`）。
+> 拉 WebView2 / WIL / nlohmann.json 的 SDK，所以 CI 里显式确保 nuget 可用（见 `build.yml`）。
 
 ---
 
@@ -292,12 +292,12 @@ document-start 注入，只做四件事，且都对失败宽容（单页脚本�
 | `preset_name` | 预置站点在列表里显示的名字（留空用域名） |
 | `theme_color` | 主色 `#RRGGBB`（顶栏、图标底色、assets 里的 `themeColor`） |
 | `logo_url` | ② 给一个图片 URL，CI 下载后做图标（PNG/JPG/ICO 都行） |
-| `logo_path` | ① 仓库里放好文件（如 `shell/branding/logo.png`），CI 直接读 |
+| `logo_path` | ① 仓库里放好文件（如 `branding/logo.png`），CI 直接读 |
 | `auto_icon` | ③ 都没给就从预置站点抓图标：先读首页 HTML 里 `<link rel="...icon...">` 声明的（apple-touch 优先，svg 放最后），再兜底试根目录的 `apple-touch-icon*` / `favicon.ico` / `favicon.png` |
 | `allow_add_site` | 白标版是否允许用户再加站点（默认允许） |
 
 **三条路都没结果时不会打出"没有图标"的包**：用 App 名/域名的首字母按主题色画一个
-（`shell/tools/branding.sh`，之所以取 ASCII 字母是因为 CI 上不保证有中文字体，画汉字会变方框）。
+（`tools/branding.sh`，之所以取 ASCII 字母是因为 CI 上不保证有中文字体，画汉字会变方框）。
 
 **为什么必须读 HTML 而不能只探固定路径**：实测 `flutter.dev/favicon.ico` 是 404，它的图标只在
 首页 HTML 里声明（还带 hash）；`php.net` 在 HTML 里声明了 196×196，而根目录 `favicon.ico` 只有
@@ -329,12 +329,12 @@ Android `minSdk` 用 Flutter 模板默认的 **24**，正好等于本套插件�
 ## 9. 目录结构
 
 ```
-shell/
+CF-WebShell/
   ARCHITECTURE.md              ← 本文件
   README.md                    ← 使用说明 / 构建 / 白标输入 / 排错
   core/                        ← 纯 Dart：站点档案、配置、URL 规则、请求头、下载队列（dart test）
     lib/src/{models,config,url_utils,headers,download}.dart
-    test/                      ← 80 个用例
+    test/                      ← 126 个用例
   app/                         ← Flutter 壳 UI + 引擎适配（CI 现生成 android/windows 脚手架）
     assets/preset.json         ← 通用壳默认值；白标构建时被 CI 覆盖
     test/                      ← 界面流程组件测试（flutter test）：添加站点等"点到即存"的流程
@@ -345,9 +345,9 @@ shell/
   tools/
     branding.sh                ← 生成图标（Android 各密度 + 自适应 + Windows .ico）与 preset.json
     patch_platform.py          ← 改 Android 清单 / Windows 窗口标题
-  branding/                    ← 可选：把 logo.png 放这里，然后给 logo_path 填 shell/branding/logo.png
+  branding/                    ← 可选：把 logo.png 放这里，然后给 logo_path 填 branding/logo.png
 .github/workflows/
-  shell-build.yml              ← test-core → branding → android / windows
+  build.yml                    ← test-core → branding → android / windows
 ```
 
 平台脚手架（`android/`、`windows/`）**不入库**：CI 里 `flutter create` 现生成再拷进 `app/`，
@@ -359,9 +359,9 @@ shell/
 
 | 阶段 | 内容 | 验收 | 现状 |
 | --- | --- | --- | --- |
-| **P1** | 纯 Dart 核心：站点档案、配置持久化、URL 规则、请求头组装、下载队列（含续传）+ 单测 | `dart test` 全绿 | ✅ 80 用例全绿，`dart analyze` 干净 |
+| **P1** | 纯 Dart 核心：站点档案、配置持久化、URL 规则、请求头组装、下载队列（含续传）+ 单测 | `dart test` 全绿 | ✅ 126 用例全绿，`dart analyze` 干净 |
 | **P2** | Flutter 壳 UI + 引擎适配：站点列表、添加站点、浏览页、前进后退、下载页、设置页 | 能装能跑，网页操作与浏览器一致 | ✅ `flutter analyze` 无 issue；CI 两端都出包（APK / Windows 便携包），产物已验（CJK App 名、包名、预置站点、图标都在包里）|
-| **P2.1** | App 组件测试（`shell/app/test/`，`flutter test`）：把"添加站点 → 写进配置 → 能被浏览页按 id 找到"这类界面流程真跑一遍 | 用例会红 | ✅ 3 用例全绿，CI 的 Android job 里跑；已验证：把修复注释掉用例立刻变红 |
+| **P2.1** | App 组件测试（`app/test/`，`flutter test`）：把"添加站点 → 写进配置 → 能被浏览页按 id 找到"这类界面流程真跑一遍 | 用例会红 | ✅ 3 用例全绿，CI 的 Android job 里跑；已验证：把修复注释掉用例立刻变红 |
 | **P3** | 桥接层补齐：下载三条路径、上传、外部协议、权限 | 下载能进手机/电脑本地，上传能选文件 | 🟡 已完成：三条下载路径 / 上传交引擎 / 外部协议 / 权限弹窗 / 按域名清 Cookie；未做：系统通知栏进度、每站点 profile 严格隔离、下载历史入库 |
 | **P3.1** | 下载"到本机"这一条链（用户反馈"下载的东西没到本机"+ "下载列表什么都没有"）：Windows 注入脚本认 `a[download]`/保守扩展名/`?download`/链接文字；导航层掐掉下载导航并吞掉自己造成的 `CANCELLED`；落点兜底不再退到系统临时目录；Android 落点从被系统屏蔽的 `Android/data/…` 换到文件管理器看得见的 `Android/media/…`（升级自动迁移）；下载页实时刷新、目录一键打开 | 点下载能进 App 下载器，且文件在哪一眼看得到 | ✅ 已做：脚本逻辑用 Edge 无头真引擎验过（16 种链接 × 两种配置，只有该下载的被接管）；`dart test` 83 用例 + `flutter test` 8 用例守住规则与脚本占位符。仍未覆盖 POST 表单下载（见 §11）|
 | **P4** | 白标 CI：`workflow_dispatch` 输入 + 图标生成 + 产物命名 | 输入名字/图标/网址 → 拿到专属 APP | ✅ 已跑通并验证：`app_name=万能壳白标测试` / `app_id=com.demo.whitelabel` / `preset_url=flutter.dev` 出的包，APK 与 zip 里的 `preset.json`、exe 名（`whitelabel.exe`）、五档图标都对；图标取自站点首页声明 |

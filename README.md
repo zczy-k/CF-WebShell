@@ -1,9 +1,15 @@
-# 万能壳（WebShell）—— 使用与构建
+# CF-WebShell —— 万能壳
 
 把**任意网站**装进一个自己的 Android / Windows App 里：翻页、登录、上传、下载都和浏览器一样，
 而且下载直接落到本机。不依赖用户装没装浏览器（用的是系统自带的网页引擎：Android WebView / Windows WebView2）。
 
 设计取舍、能力矩阵、平台限制的来龙去脉都在 [`ARCHITECTURE.md`](./ARCHITECTURE.md)，本文只讲**怎么用**。
+
+> **这个仓库只管壳，不管内容。**
+> 壳本身不认识任何具体网站 —— 站点、图标、名字、主题色都是构建参数或用户自己加的。
+> 之前它和 Cloudflare 笔记后端（`worker.js`）、那个笔记的原生客户端挤在同一个仓库里，
+> 现在拆开了：那边是 [`zczy-k/CF-Workers-TXT`](https://github.com/zczy-k/CF-Workers-TXT)，
+> 这边只留壳。两边没有代码依赖，可以各自独立发版。
 
 ---
 
@@ -31,7 +37,7 @@ App 的主界面：
 
 ### A. 通用壳（不用填任何东西）
 
-改 `shell/` 下的代码并 push 到 `main`（或对 `shell/**` 发 PR），`shell-build` 流水线自动跑，
+改 `app/`、`core/`、`tools/` 下的代码并 push 到 `main`（或对这几个目录发 PR），`build` 流水线自动跑，
 产物在 Actions 那次运行的 **Artifacts** 里：
 
 - `webshell-android-apk` → `webshell-<包名>-<构建号>.apk`
@@ -41,7 +47,7 @@ App 的主界面：
 
 ### B. 白标版（手动填参数）
 
-仓库 **Actions → shell-build → Run workflow**，填下表后运行。只有这条入口能带参数。
+仓库 **Actions → build → Run workflow**，填下表后运行。只有这条入口能带参数。
 
 | 输入 | 留空时 | 说明 |
 | --- | --- | --- |
@@ -51,7 +57,7 @@ App 的主界面：
 | `preset_name` | 用域名 | 预置站点在列表里显示的名字 |
 | `theme_color` | `#2962FF` | 主题色，`#RRGGBB` |
 | `logo_url` | 自动（见下） | 图标图片地址（PNG/JPG/ICO）。⚠️ 必须是**直链**，不能是网页 |
-| `logo_path` | 自动（见下） | 仓库里的图标文件路径。先把图片提交到仓库，再填 `shell/branding/logo.png` |
+| `logo_path` | 自动（见下） | 仓库里的图标文件路径。先把图片提交到仓库，再填 `branding/logo.png` |
 | `auto_icon` | 开 | 没给图标时，抓预置站点的 `apple-touch-icon` / `favicon.ico` / `favicon.png` |
 | `allow_add_site` | 开 | 白标版是否允许用户自己再加站点 |
 
@@ -82,33 +88,33 @@ App 的主界面：
 CI 打的是 **debug keystore 签名**的 release 包，能侧载安装、能正常使用，但**不能上架应用商店**，
 而且和别的机器打的同包名包互相覆盖安装会失败。要正式签名：把 keystore 放进仓库 Secrets，
 在生成的 `android/app/build.gradle(.kts)` 里加 `signingConfigs` 并让 `release` 用它
-（这几行得在 `shell-build.yml` 的 Android job 里加，因为 `android/` 是 CI 现生成的）。
+（这几行得在 `build.yml` 的 Android job 里加，因为 `android/` 是 CI 现生成的）。
 
 ---
 
 ## 三、本机开发
 
 ```bash
-# 纯逻辑（秒级，80 个用例）
-cd shell/core && dart pub get && dart test
+# 纯逻辑（秒级，126 个用例）
+cd core && dart pub get && dart test
 
 # 壳 App（需要 Flutter 3.44+）
-cd shell/app && flutter pub get
+cd app && flutter pub get
 flutter run -d windows      # 或 -d <安卓设备>
 
 # 界面流程测试（3 个用例，几秒钟，不需要设备；不联网）
-cd shell/app && flutter test
+cd app && flutter test
 ```
 
 注意两点：
 
-- **`shell/app/android/` 和 `shell/app/windows/` 不在仓库里**，需要在本地生成一次：
-  在 `shell/app` 下跑 `flutter create --platforms=android,windows --org dev.webshell --project-name webshell .`
+- **`app/android/` 和 `app/windows/` 不在仓库里**，需要在本地生成一次：
+  在 `app` 下跑 `flutter create --platforms=android,windows --org dev.webshell --project-name webshell .`
   （CI 也是这么做的；仓库只保留 `lib/` 作为唯一真相源）。
 - **静态分析的 flag 不一样**：`dart analyze` 从 Dart 3.13 起**不能**传 `--no-fatal-infos`（传了直接退出 64），
   而 `flutter analyze` 默认把 info 也算致命，必须传 `--no-fatal-infos --no-fatal-warnings`。
   两边 CI 都按这个写了，本地跟着来就不会被"假报错"骗。
-- **改 UI 流程就顺手跑一下 `flutter test`**：`shell/app/test/` 里的用例会把"添加站点"这类
+- **改 UI 流程就顺手跑一下 `flutter test`**：`app/test/` 里的用例会把"添加站点"这类
   流程真的点一遍。原因是有一次真漏过 —— 添加站点只建了档案、忘了写进配置，浏览页按 id
   查不到它，只显示"这个站点已经被删除了"，首页列表永远空着（用户看到的"空壳"）。
   这种"界面流程忘了调某个函数"的问题 `analyze` 和纯 Dart 单测都看不见，只有组件测试抓得到。
@@ -134,7 +140,7 @@ Windows 上跑还需要 **WebView2 运行时**（Win10/11 通常随 Edge 自带�
 | 打开下载好的文件 / 在文件夹中显示 | ✅ Android 交给系统关联应用；Windows 用资源管理器 |
 | 登录状态保持 | ✅ Cookie 存在 App 自己的 profile 里，重启仍在 |
 | 每个站点单独的登录态清理 | ✅ 按域名清 Cookie，不影响别的站点 |
-| 自定义 UA / 自定义请求头 / Basic Auth | ✅ 密码进系统安全存储（Keystore / DPAPI），不进配置文件 |
+| 自定义 UA / 自定义请求头 / Basic Auth | ✅ 密码不进配置文件：Windows 走 DPAPI 加密（`secrets.bin`），Android 靠 App 私有目录 + 构建期关掉 `allowBackup`（强度差异见 ARCHITECTURE §6.1） |
 | 网页权限（摄像头/麦克风/定位） | ✅ 弹框询问；非 https 直接拒 |
 | 站点图标 | ✅ 自动抓 favicon / apple-touch-icon，抓不到用首字母 |
 | 省流模式（不加载图片）、同时下载数 | ✅ 设置页可调 |
@@ -163,7 +169,7 @@ Windows 上跑还需要 **WebView2 运行时**（Win10/11 通常随 Edge 自带�
 | Android 构建报 `` `getDefaultProguardFile('proguard-android.txt')` is no longer supported `` | 上游 `flutter_inappwebview_android` 的 `build.gradle` 写法过旧，Flutter 模板自带的新 AGP 直接当硬错误 | 流水线会把它换成 `proguard-android-optimize.txt`（只改这一个文件；上游发版修好后该步自动跳过） |
 | Windows 步骤报 "Python was not found" / 只退 1 不给原因 | 机器上的 `python` 可能只是微软商店的"应用执行别名"占位符 | 流水线不是查 PATH 而是**实跑一遍**探测 `python` / `py -3` / `python3`，挑真能用的那个 |
 | CI 里 `dart analyze --no-fatal-infos` 报 "Cannot negate option" | Dart 3.13 起该选项已移除 | 别传它（本仓库的流水线已修正） |
-| 看不到 CI 日志 / 下不了产物 | 未登录时拿不到 Actions 原始日志 | **失败原因无需登录**：流水线把各步骤日志尾部打成 check-run 注解，`GET /repos/zczy-k/CF-Workers-TXT/commits/<sha>/check-runs` → `.../check-runs/<id>/annotations` 即可读；产物要登录才能下 |
+| 看不到 CI 日志 / 下不了产物 | 未登录时拿不到 Actions 原始日志 | **失败原因无需登录**：流水线把各步骤日志尾部打成 check-run 注解，`GET /repos/zczy-k/CF-WebShell/commits/<sha>/check-runs` → `.../check-runs/<id>/annotations` 即可读；产物要登录才能下 |
 
 ---
 
@@ -190,12 +196,12 @@ Windows 上跑还需要 **WebView2 运行时**（Win10/11 通常随 Edge 自带�
 
 | 路径 | 作用 |
 | --- | --- |
-| `shell/core/` | 纯 Dart 核心（站点档案、配置持久化、URL 规则、请求头、下载队列），`dart test` 80 用例 |
-| `shell/app/test/` | 界面流程组件测试（`flutter test`）：添加站点等"点到即存"的流程，抓 analyze 看不见的 bug |
-| `shell/app/lib/src/pages/` | 首页 / 浏览页 / 站点设置 / 下载 / 设置 |
-| `shell/app/lib/src/engine/scripts.dart` | 注入脚本（blob 导出、补请求头、长按、全屏兜底） |
-| `shell/app/lib/src/state.dart` | 接线层：配置落盘、下载队列接引擎 Cookie/UA、blob 通道、密码安全存储 |
-| `shell/app/assets/preset.json` | 通用壳默认值；白标构建时被 CI 覆盖 |
-| `shell/tools/branding.sh` | 生成各平台图标 + `preset.json`（ImageMagick；图标优先取站点首页 HTML 里声明的） |
-| `shell/tools/patch_platform.py` | 改 Android 清单 / Windows 窗口标题 / 给 Windows CMakeLists 注入 MSVC 静音宏 |
-| `.github/workflows/shell-build.yml` | `test-core → branding → android / windows` |
+| `core/` | 纯 Dart 核心（站点档案、配置持久化、URL 规则、请求头、下载队列），`dart test` 126 用例 |
+| `app/test/` | 界面流程组件测试（`flutter test`）：添加站点等"点到即存"的流程，抓 analyze 看不见的 bug |
+| `app/lib/src/pages/` | 首页 / 浏览页 / 站点设置 / 下载 / 设置 |
+| `app/lib/src/engine/scripts.dart` | 注入脚本（blob 导出、补请求头、长按、全屏兜底） |
+| `app/lib/src/state.dart` | 接线层：配置落盘、下载队列接引擎 Cookie/UA、blob 通道、密码安全存储 |
+| `app/assets/preset.json` | 通用壳默认值；白标构建时被 CI 覆盖 |
+| `tools/branding.sh` | 生成各平台图标 + `preset.json`（ImageMagick；图标优先取站点首页 HTML 里声明的） |
+| `tools/patch_platform.py` | 改 Android 清单 / Windows 窗口标题 / 给 Windows CMakeLists 注入 MSVC 静音宏 |
+| `.github/workflows/build.yml` | `test-core → branding → android / windows` |

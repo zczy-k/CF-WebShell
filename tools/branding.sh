@@ -6,7 +6,7 @@
 # 打出来的两个平台包图标完全一致。
 #
 # logo 三种来源，优先级从高到低：
-#   1) LOGO_PATH           仓库里的图片文件（例如 shell/branding/logo.png）
+#   1) LOGO_PATH           仓库里的图片文件（例如 branding/logo.png）
 #   2) LOGO_URL            一个图片地址（PNG / JPG / ICO 都行）
 #   3) AUTO_ICON=true 且给了 PRESET_URL
 #                          先读首页 HTML 里 <link rel="...icon..."> 声明的图标，
@@ -16,7 +16,7 @@
 # 第 4 条是刻意的：永远有图标，绝不会打出"没有图标"的包。
 #
 # 用法（在仓库根目录）：
-#   APP_NAME='公司 OA' APP_ID=com.corp.oa PRESET_URL=oa.corp.com bash shell/tools/branding.sh out
+#   APP_NAME='公司 OA' APP_ID=com.corp.oa PRESET_URL=oa.corp.com bash tools/branding.sh out
 set -euo pipefail
 
 # say 放在最前面：下面每一步（包括环境自检）都可能要报一句人话，
@@ -40,7 +40,7 @@ UPDATE_URL="${UPDATE_URL:-}"
 
 # 抓站点图标时用的 UA。写清楚自己是谁（而不是冒充 Chrome），同时带 compatible 前缀，
 # 让那些只拒绝"空 UA/爬虫 UA"的 CDN 放行；实测 flutter.dev / php.net / wikipedia 都能过。
-UA="Mozilla/5.0 (compatible; WebShellBranding/1.0; +https://github.com/zczy-k/CF-Workers-TXT)"
+UA="Mozilla/5.0 (compatible; WebShellBranding/1.0; +https://github.com/zczy-k/CF-WebShell)"
 
 if command -v magick >/dev/null 2>&1; then IM="magick"; elif command -v convert >/dev/null 2>&1; then IM="convert"; else
   # 实测：ubuntu-22.04 的镜像自带 ImageMagick，**ubuntu-24.04 起就没有了**，
@@ -338,7 +338,7 @@ else
   PRESET_SITES_JSON="[]"
 fi
 
-# 版本号单一真相源：shell/app/pubspec.yaml 的 `version: 0.1.0+1`。
+# 版本号单一真相源：app/pubspec.yaml 的 `version: 0.1.0+1`。
 # 构建号（+1）留给平台构建用，preset.json 只带用户可见的 0.1.0。
 # 读不到时退回 0.0.0 —— 版本显示宁缺毋滥，也别让构建挂在这。
 APP_VERSION="$(sed -n 's/^version:[[:space:]]*\([0-9][0-9A-Za-z.\-]*\)\(+[0-9]*\)\{0,1\}$/\1/p' \

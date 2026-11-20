@@ -8,7 +8,7 @@ import 'state.dart';
 
 /// Android 下载通知（进度 / 完成 / 失败）+ 下载期间前台保活。
 ///
-/// 原生侧由 CI 注入（`shell/tools/patch_platform.py` 的 `notify` 子命令）：
+/// 原生侧由 CI 注入（`tools/patch_platform.py` 的 `notify` 子命令）：
 /// `MethodChannel("webshell/download_notify")` → `DownloadService`（前台服务，
 /// 单一通知槽）。Dart 这边只做三件事：监听 [ShellState]、把所有任务聚合成
 /// 一条通知、节流推送（下载状态机每 200ms 广播一次，直接转发会把 Binder 打爆）。
