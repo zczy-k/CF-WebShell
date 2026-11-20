@@ -207,3 +207,19 @@ Windows 上跑还需要 **WebView2 运行时**（Win10/11 通常随 Edge 自带�
 | `tools/branding.sh` | 生成各平台图标 + `preset.json`（ImageMagick；图标优先取站点首页 HTML 里声明的） |
 | `tools/patch_platform.py` | 改 Android 清单 / Windows 窗口标题 / 给 Windows CMakeLists 注入 MSVC 静音宏 |
 | `.github/workflows/build.yml` | `test-core → branding → android / windows` |
+
+---
+
+## 许可证
+
+**GNU General Public License v3.0**（全文见 [`LICENSE`](./LICENSE)）。
+
+这个选择是刻意的：壳的价值在于"任何人都能把自己的网站装成 App"，要是谁都能拿它改个名字、
+换个图标就闭源卖，这件事就变味了。GPL-3.0 只在你**对外分发**时生效 —— 分出去的版本必须同样
+开源、必须给接收者同样的自由。你自己内部用、自己改、不发给别人，不受任何约束。
+
+> 想要闭源商用版？那得另外授权，开个 issue 谈。
+>
+> GPL-3.0 与 Apache-2.0 是**兼容**的（FSF 认可；真正不兼容的是 GPLv2），所以理论上能和
+> 笔记仓库（[CF-Workers-TXT](https://github.com/zczy-k/CF-Workers-TXT)）互相搬代码 ——
+> 不过它们本来就零依赖：一个是服务端 JS，一个是 Flutter 壳。
