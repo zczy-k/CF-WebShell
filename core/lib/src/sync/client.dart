@@ -82,7 +82,7 @@ class SyncCredentials {
       return null;
     }
     return SyncCredentials(
-      endpoint: _trimSlash(endpoint),
+      endpoint: normalizeEndpoint(endpoint),
       spaceId: spaceId,
       deviceId: deviceId,
       deviceToken: token,
@@ -408,7 +408,7 @@ class SyncClient {
     Duration timeout = const Duration(seconds: 15),
     Set<int> allowStatus = const <int>{},
   }) async {
-    final Uri uri = Uri.parse('${_trimSlash(endpoint)}$path');
+    final Uri uri = Uri.parse('${normalizeEndpoint(endpoint)}$path');
     final HttpClient client = HttpClient()
       ..connectionTimeout = const Duration(seconds: 5)
       // Cloudflare 上跑的 Worker 不需要跟随重定向；跟了反而会把 Bearer 头
@@ -513,6 +513,11 @@ class SyncClient {
         return '服务端的同步文档已损坏，已停止写入以免覆盖，稍后重试';
       case 'no_history':
         return '这一版历史已经不在了，重新打开历史版本列表看看';
+      case 'unauthorized':
+        // 走到这里几乎只有一个原因：请求路径没命中任何接口，Worker 把它当成
+        // "没带设备凭证的访问"。所以别让用户去怀疑密钥 —— 直接指向地址。
+        return '服务地址可能带了多余路径（如 /v1/health），或者这个 Worker 版本太旧、'
+            '不认识 /v1/bootstrap。地址只填到域名再试一次';
     }
     return code;
   }
@@ -529,6 +534,82 @@ String _trimSlash(String s) {
     out = out.substring(0, out.length - 1);
   }
   return out;
+}
+
+/// 路径里那些"具体接口名"。粘错地址时它们是最常见的尾巴。
+const Set<String> _endpointTails = <String>{
+  'health',
+  'bootstrap',
+  'pair',
+  'state',
+  'devices',
+  'history',
+  'version',
+  'doc',
+};
+
+/// 把用户填的服务地址规整成"只剩根"的基址。
+///
+/// 真事：从浏览器地址栏抄下来的健康检查地址是
+/// `https://xxx/v1/health`，拼上 `/v1/bootstrap` 就变成
+/// `/v1/health/v1/bootstrap` —— Worker 认不出这个路径，代码里所有未知路径都会
+/// 落到鉴权兜底那一行，于是回一个 `unauthorized`。用户看到的既不是"地址错"也
+/// 不是"密钥错"，只能来问人。
+///
+/// 与其靠提示教育用户，不如自己吃掉错：**看到 `v1` / `api` 段就整段砍掉**，
+/// 没有这种段时砍掉末尾那个已知接口名。都不匹配就原样保留 —— 真有人把 Worker
+/// 挂在 `https://example.com/starport` 这种子路径上，砍了反而连不上。
+///
+/// 顺带把 `?query` 和 `#fragment` 扔掉（它们同样不该出现在基址里），
+/// 并且协议缺省补 `https://`。
+String normalizeEndpoint(String raw) {
+  final String s = raw.trim();
+  if (s.isEmpty) return s;
+
+  // 没写协议时先补上再解析：`Uri.parse('sync.example.com/v1/health')` 的
+  // `host` 是空的（整串被当成 path），不补协议就只能原样吐回去。
+  final String withScheme =
+      RegExp(r'^[a-zA-Z][a-zA-Z0-9+.\-]*://').hasMatch(s) ? s : 'https://$s';
+
+  final Uri uri;
+  try {
+    uri = Uri.parse(withScheme);
+  } on FormatException {
+    return _trimSlash(s);
+  }
+  if (uri.host.isEmpty) return _trimSlash(s);
+
+  final List<String> segs = uri.pathSegments.where((String e) => e.isNotEmpty).toList();
+
+  // 找最靠前的 `v1` / `api` 段 —— 它和它后面的一切都是接口路径，不是基址。
+  int cut = -1;
+  for (int i = 0; i < segs.length; i++) {
+    final String low = segs[i].toLowerCase();
+    if (low == 'v1' || low == 'api') {
+      cut = i;
+      break;
+    }
+  }
+  if (cut < 0 && segs.isNotEmpty && _endpointTails.contains(segs.last.toLowerCase())) {
+    cut = segs.length - 1;
+  }
+  final List<String> keep = cut < 0 ? segs : segs.sublist(0, cut);
+
+  final StringBuffer out = StringBuffer()
+    ..write(uri.scheme.isEmpty ? 'https' : uri.scheme)
+    ..write('://')
+    ..write(uri.host);
+  if (uri.hasPort) {
+    out
+      ..write(':')
+      ..write(uri.port);
+  }
+  for (final String seg in keep) {
+    out
+      ..write('/')
+      ..write(seg);
+  }
+  return out.toString();
 }
 
 String _s(Object? v) => v is String ? v.trim() : '';

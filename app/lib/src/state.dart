@@ -621,7 +621,10 @@ class ShellState extends ChangeNotifier {
   ///
   /// 返回 null = 成功。
   Future<String?> syncChangeEndpoint(String raw) async {
-    final String endpoint = raw.trim().replaceAll(RegExp(r'/+$'), '');
+    // 用 core 里那套归一化，而不是只削尾部斜杠：用户从浏览器抄来的常常是
+    // `https://xxx/v1/health`，这份带路径的地址如果进了凭证，之后每个请求
+    // 都会拼成 `/v1/health/v1/xxx`，Worker 一律回 `unauthorized`。
+    final String endpoint = normalizeEndpoint(raw);
     if (endpoint.isEmpty) {
       config.syncEndpoint = '';
       saveNow();

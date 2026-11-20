@@ -619,10 +619,14 @@ class _SettingsPageState extends State<SettingsPage> {
       title: '服务地址',
       controller: _endpointCtrl,
       hint: 'https://sync.example.com',
-      help: '你部署 Worker 时拿到的域名，末尾不要带路径。',
+      help: '你部署 Worker 时拿到的域名。填到域名就够 —— 就算粘成 '
+          'https://xxx/v1/health 这种完整接口地址，也会自动帮你削回域名。',
     );
     if (value == null) return;
-    final String trimmed = value.trim();
+    // 粘错地址是这里最常见的事故：`/v1/health` 这种尾巴留着，拼上
+    // `/v1/bootstrap` 会变成 `/v1/health/v1/bootstrap`，Worker 认不出就回
+    // `unauthorized`。在入口处削干净，比在错误气泡里解释便宜得多。
+    final String trimmed = normalizeEndpoint(value);
     if (trimmed.isNotEmpty &&
         !trimmed.startsWith('https://') &&
         !trimmed.startsWith('http://')) {
