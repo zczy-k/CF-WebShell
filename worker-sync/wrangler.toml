@@ -1,0 +1,37 @@
+#:schema
+name = "cf-webshell-sync"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+
+# D1 绑定。同步文档整份存一列 JSON，见 schema.sql 里的说明。
+#
+# 部署顺序（第一次）：
+#   npx wrangler d1 create cf-webshell-sync
+#   → 把输出里的 database_id 填到下面
+#   npx wrangler d1 execute cf-webshell-sync --remote --file=schema.sql
+#   npx wrangler secret put BOOTSTRAP_SECRET   # 自己编一串 32 位以上的随机字符
+#   npx wrangler deploy
+[[d1_databases]]
+binding = "DB"
+database_name = "cf-webshell-sync"
+database_id = "REPLACE_WITH_YOUR_DATABASE_ID"
+
+# 不用 KV：KV 免费额度 1000 写/天，而且写入后最多 60 秒才全球可见。
+# 同步的"删了必须真删"这条要求容不下那么久的延迟。
+
+[vars]
+# 单个文档的体积上限（字节）。50 个站点大概 20-30 KB，512 KB 是给
+# 极端情况（几百个站点带 header）留的余量。
+MAX_DOC_BYTES = "524288"
+
+# 每台设备每小时最多推几次。60 次 = 平均一分钟一次，远超正常手速。
+RATE_WRITES_PER_HOUR = "60"
+
+# 每个空间每小时最多推几次。防止某台设备死循环把额度烧光。
+RATE_SPACE_PER_HOUR = "2000"
+
+# 设备数上限。0 = 不限（配对过的都能用）。
+MAX_DEVICES = "0"
+
+# 配对码有效期（秒）。
+PAIR_TTL_SECONDS = "600"

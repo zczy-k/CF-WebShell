@@ -24,6 +24,9 @@ class ShellConfig {
     this.lastUpdateCheckMs = 0,
     this.presetSignature = '',
     List<String>? presetIds,
+    this.syncEnabled = false,
+    this.syncEndpoint = '',
+    this.syncSpaceId = '',
     Branding? branding,
   })  : sites = sites ?? <SiteProfile>[],
         presetIds = presetIds ?? <String>[],
@@ -70,6 +73,25 @@ class ShellConfig {
   /// 老配置（这个字段还不存在时写下的）里是空的 —— [syncPresetSites] 会先按
   /// 地址认领一次，把对得上预置地址的站点补记进来，之后的差异才准。
   final List<String> presetIds;
+
+  /// 自动同步开关。
+  bool syncEnabled;
+
+  /// 同步服务地址，如 `https://sync.example.com`（不带 `/v1`）。
+  ///
+  /// 为什么允许用户自己填：同步必须能架在自己的 Cloudflare 账号上，
+  /// 不能绑死到某个中心服务器 —— 否则"防止别人接进我的项目"这条就白写了。
+  String syncEndpoint;
+
+  /// 配对成功后服务端给的"空间"id。
+  ///
+  /// 同一个空间里的设备共享同一份站点清单。设备令牌（真正的凭证）不在这里，
+  /// 它在系统安全存储里（Windows 上走 DPAPI，绑定当前用户+这台机器）。
+  String syncSpaceId;
+
+  /// 同步配置是否完整可用（开关打开 + 地址 + 空间 id 都在）。
+  bool get syncConfigured =>
+      syncEnabled && syncEndpoint.trim().isNotEmpty && syncSpaceId.trim().isNotEmpty;
 
   Branding branding;
 
@@ -154,6 +176,9 @@ class ShellConfig {
         'lastUpdateCheckMs': lastUpdateCheckMs,
         if (presetSignature.isNotEmpty) 'presetSignature': presetSignature,
         if (presetIds.isNotEmpty) 'presetIds': presetIds,
+        if (syncEnabled) 'syncEnabled': true,
+        if (syncEndpoint.isNotEmpty) 'syncEndpoint': syncEndpoint,
+        if (syncSpaceId.isNotEmpty) 'syncSpaceId': syncSpaceId,
         'branding': branding.toJson(),
       };
 
@@ -189,6 +214,9 @@ class ShellConfig {
     config.closeToTray = _asBool(map['closeToTray'], true);
     config.lastUpdateCheckMs = _asInt(map['lastUpdateCheckMs'], 0);
     config.presetSignature = _asString(map['presetSignature']) ?? '';
+    config.syncEnabled = _asBool(map['syncEnabled'], false);
+    config.syncEndpoint = _asString(map['syncEndpoint']) ?? '';
+    config.syncSpaceId = _asString(map['syncSpaceId']) ?? '';
 
     final Object? rawPresetIds = map['presetIds'];
     if (rawPresetIds is List) {
@@ -249,7 +277,15 @@ class ShellConfig {
   /// 老配置（写的时候还没有 [presetIds] 这个字段）会先做一次"认领"：
   /// 地址和这一版预置对得上的站点补记进 [presetIds]，这样从下一版起
   /// 差异就算得准。
-  static ShellConfig syncPresetSites(ShellConfig config, Branding branding) {
+  ///
+  /// [suppressed] 是同步文档里那份"用户亲手删掉的预置地址"名单。命中的地址
+  /// 一律当作"这一版不预置" —— 否则用户删掉的白标预置站点下次启动就复活了，
+  /// 而删除自动复活是同步功能里最招人烦的一类 bug。
+  static ShellConfig syncPresetSites(
+    ShellConfig config,
+    Branding branding, {
+    Set<String>? suppressed,
+  }) {
     final String signature = branding.presetSignature;
     final List<PresetSite> items = branding.effectivePresetSites;
 
@@ -258,6 +294,11 @@ class ShellConfig {
     for (final PresetSite item in items) {
       final String? url = normalizeUrl(item.url.trim());
       if (url != null) wanted.add(url);
+    }
+    if (suppressed != null) {
+      for (final String url in suppressed) {
+        wanted.remove(url);
+      }
     }
 
     if (config.presetSignature == signature) {
@@ -294,6 +335,8 @@ class ShellConfig {
     for (final PresetSite item in items) {
       final String? url = normalizeUrl(item.url.trim());
       if (url == null || !existing.add(url)) continue;
+      // 被用户删过的预置地址（抑制名单）不再补回来 —— 删除必须是永久的。
+      if (!wanted.contains(url)) continue;
       final String name = (item.name ?? '').trim();
       final SiteProfile site = SiteProfile(
         id: newId(),
@@ -339,6 +382,13 @@ class ConfigFile {
 
   static const String defaultFileName = 'webshell.json';
 
+  /// 用户亲手删掉的预置站点地址（来自同步文档的抑制名单）。
+  ///
+  /// 为什么是字段而不是参数：`load()` 的调用点遍布 App 和单测，多一个位置参数
+  /// 会把所有调用方都改一遍；而且这个值本来就是"这个配置文件对象的上下文"，
+  /// 挂成字段更贴切。App 启动时在 `load()` 之前塞进来即可。
+  Set<String> suppressedUrls = const <String>{};
+
   ShellConfig load([Branding fallback = Branding.generic]) {
     if (!file.existsSync()) return ShellConfig.bootstrap(fallback);
     try {
@@ -349,7 +399,8 @@ class ConfigFile {
       final int sitesBefore = config.sites.length;
       final String sigBefore = config.presetSignature;
       final String idsBefore = config.presetIds.join(',');
-      final ShellConfig synced = ShellConfig.syncPresetSites(config, fallback);
+      final ShellConfig synced =
+          ShellConfig.syncPresetSites(config, fallback, suppressed: suppressedUrls);
       // 同步结果必须立刻落盘：指纹不持久化的话，每次启动都会重新同步一遍，
       // 用户手动删掉的预置站点下次启动又会长回来。presetIds 的"认领"同理 ——
       // 只补记一次，之后按 id 精确 diff 才不会误删用户自己的站点。

@@ -12,5 +12,8 @@ export 'src/download.dart';
 export 'src/headers.dart';
 export 'src/models.dart';
 export 'src/paths.dart';
+export 'src/sync/client.dart';
+export 'src/sync/doc.dart';
+export 'src/sync/state.dart';
 export 'src/update.dart';
 export 'src/url_utils.dart';

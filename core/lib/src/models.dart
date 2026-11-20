@@ -37,6 +37,7 @@ class SiteProfile {
     this.allowSelfSignedCert = false,
     this.createdAtMs = 0,
     this.lastOpenedMs = 0,
+    this.updatedAtMs = 0,
   }) : headers = Map<String, String>.of(headers ?? const <String, String>{});
 
   /// 默认主题色（靛蓝），和客户端保持同一套观感。
@@ -78,6 +79,13 @@ class SiteProfile {
   final int createdAtMs;
   int lastOpenedMs;
 
+  /// 最后一次**改动内容**的时间（改名、换地址、换图标都算）。
+  ///
+  /// 和 [lastOpenedMs] 严格分开：打开一个网站不算改动，要是拿 lastOpenedMs 当
+  /// 合并时间戳，用户在一台机器上点开过一次，就会把另一台机器上刚改好的名字盖掉。
+  /// 0 = 这个站点还没被编辑过（老配置里的站点都是 0），合并时退化成 [createdAtMs]。
+  int updatedAtMs;
+
   String get host => prettyHost(hostOf(startUrl));
 
   /// 顶栏/列表里显示的名字：用户起的名字优先，否则退化成主机名。
@@ -103,6 +111,7 @@ class SiteProfile {
         if (allowSelfSignedCert) 'allowSelfSignedCert': true,
         'createdAtMs': createdAtMs,
         'lastOpenedMs': lastOpenedMs,
+        if (updatedAtMs > 0) 'updatedAtMs': updatedAtMs,
       };
 
   /// 宽容解析：坏数据返回 null。
@@ -146,6 +155,7 @@ class SiteProfile {
       allowSelfSignedCert: _asBool(raw['allowSelfSignedCert'], false),
       createdAtMs: _asInt(raw['createdAtMs'], 0),
       lastOpenedMs: _asInt(raw['lastOpenedMs'], 0),
+      updatedAtMs: _asInt(raw['updatedAtMs'], 0),
     );
   }
 
@@ -164,6 +174,7 @@ class SiteProfile {
         allowSelfSignedCert: allowSelfSignedCert,
         createdAtMs: createdAtMs,
         lastOpenedMs: lastOpenedMs,
+        updatedAtMs: updatedAtMs,
       );
 }
 
