@@ -22,7 +22,7 @@
 
 | 文件 | 干嘛用 | 直接打开这个网址复制 |
 | --- | --- | --- |
-| `schema-plain.sql` | 建表（就像先搭好几个空抽屉） | https://raw.githubusercontent.com/zczy-k/Starport/main/worker-sync/schema-plain.sql |
+| `schema-plain.sql` | 建表（纯 SQL，**一行注释都没有**，粘进网页控制台不会报错） | https://raw.githubusercontent.com/zczy-k/Starport/main/worker-sync/schema-plain.sql |
 | `index.js` | 程序本体（真正的同步逻辑） | https://raw.githubusercontent.com/zczy-k/Starport/main/worker-sync/src/index.js |
 
 打开上面两个网址，看到纯文字后按 `Ctrl+A` 全选、`Ctrl+C` 复制，先放着待会粘。
@@ -55,8 +55,13 @@ Storage & Databases  →  D1 SQL Database  →  Create database
 > ⚠️ 一定是 **Console / 控制台**这个标签，不是「概览」也不是「查询数据」。
 > 概览页只有数字，没有输入框，你在那粘什么都不会发生。
 
-**先把鼠标点进那个输入框**（点一下，看到光标在闪），再 `Ctrl+A` 全选、`Ctrl+C` 复制
+**先把鼠标点进那个输入框**（点一下，看到光标在闪），`Ctrl+A` 全选、`Ctrl+C` 复制
 前面准备好的 `schema-plain.sql`，`Ctrl+V` 粘进去，最后点 **Execute / 执行**。
+
+> 粘进去之后，输入框里**第一行就应该是 `CREATE TABLE`**，一个 `--` 都不该有。
+> 如果你看到 `--` 开头的字，说明粘错文件了 —— 那份叫 `schema.sql`（带中文说明的），
+> 网页控制台读不了那些说明，会报 `No SQL statements detected.`。
+> 要用的是 `schema-plain.sql`，这份只有 8 行纯 SQL。
 
 ✅ **做完你会看到**：下面出来一片执行结果，没有红色报错。
 
