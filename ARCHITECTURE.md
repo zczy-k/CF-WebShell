@@ -59,7 +59,7 @@
 ┌──────────────────────────▼────────────────────────────────────┐
 │ 壳逻辑层 webshell_core（纯 Dart，零 Flutter / 零第三方依赖）      │
 │  站点档案 · 配置持久化 · URL 规整 · 请求头组装 · 下载队列/续传     │
-│  → 可 dart test，126个用例                                        │
+│  → 可 dart test，190个用例                                        │
 └──────────────────────────┬────────────────────────────────────┘
 ┌──────────────────────────▼────────────────────────────────────┐
 │ 引擎适配层（每个平台一份薄实现）                                 │
@@ -340,11 +340,15 @@ Android `minSdk` 用 Flutter 模板默认的 **24**，正好等于本套插件�
 
 ```
 CF-WebShell/
-  ARCHITECTURE.md              ← 本文件
-  README.md                    ← 使用说明 / 构建 / 白标输入 / 排错
-  core/                        ← 纯 Dart：站点档案、配置、URL 规则、请求头、下载队列（dart test）
+  ARCHITECTURE.md              ← 本文件（设计取舍 / 能力矩阵 / 平台限制）
+  README.md                    ← 入口：四条路（出包 / 同步 / 使用 / 架构）
+  docs/
+    BUILD.md                   ← 出包、白标参数、图标规则、签名、依赖、构建排错
+    USAGE.md                   ← 界面说明、功能清单、使用排错
+  core/                        ← 纯 Dart：站点档案、配置、URL 规则、请求头、下载队列、同步引擎（dart test）
     lib/src/{models,config,url_utils,headers,download}.dart
-    test/                      ← 126 个用例
+    lib/src/sync/              ← 同步协议：doc 合并 / 引擎 / 客户端 / 服务（2267 行，全部有单测）
+    test/                      ← 190 个用例
   app/                         ← Flutter 壳 UI + 引擎适配（CI 现生成 android/windows 脚手架）
     assets/preset.json         ← 通用壳默认值；白标构建时被 CI 覆盖
     test/                      ← 界面流程组件测试（flutter test）：添加站点等"点到即存"的流程
@@ -352,6 +356,13 @@ CF-WebShell/
     lib/src/engine/scripts.dart
     lib/src/pages/{home,browser,site_edit,downloads,settings}_page.dart
     lib/src/widgets/site_avatar.dart
+  worker-sync/                 ← 同步中转站（Cloudflare Worker + D1，零 npm 依赖）
+    README.md                  ← 命令行部署
+    DEPLOY.md                  ← 网页部署教程（含国内自定义域名）
+    INTERNALS.md               ← 鉴权模型 / 接口 / 历史版本 / 额度 / 改代码前必读
+    schema.sql                 ← 建表（带注释，命令行用）
+    schema-plain.sql           ← 建表（无注释，网页控制台粘这个）
+    src/index.js               ← 全部逻辑，621 行
   tools/
     branding.sh                ← 生成图标（Android 各密度 + 自适应 + Windows .ico）与 preset.json
     patch_platform.py          ← 改 Android 清单 / Windows 窗口标题
@@ -369,7 +380,7 @@ CF-WebShell/
 
 | 阶段 | 内容 | 验收 | 现状 |
 | --- | --- | --- | --- |
-| **P1** | 纯 Dart 核心：站点档案、配置持久化、URL 规则、请求头组装、下载队列（含续传）+ 单测 | `dart test` 全绿 | ✅ 126 用例全绿，`dart analyze` 干净 |
+| **P1** | 纯 Dart 核心：站点档案、配置持久化、URL 规则、请求头组装、下载队列（含续传）+ 单测 | `dart test` 全绿 | ✅ 190 用例全绿，`dart analyze` 干净 |
 | **P2** | Flutter 壳 UI + 引擎适配：站点列表、添加站点、浏览页、前进后退、下载页、设置页 | 能装能跑，网页操作与浏览器一致 | ✅ `flutter analyze` 无 issue；CI 两端都出包（APK / Windows 便携包），产物已验（CJK App 名、包名、预置站点、图标都在包里）|
 | **P2.1** | App 组件测试（`app/test/`，`flutter test`）：把"添加站点 → 写进配置 → 能被浏览页按 id 找到"这类界面流程真跑一遍 | 用例会红 | ✅ 14 用例全绿，CI 的 Android job 里跑；已验证：把修复注释掉用例立刻变红 |
 | **P3** | 桥接层补齐：下载三条路径、上传、外部协议、权限 | 下载能进手机/电脑本地，上传能选文件 | 🟡 已完成：三条下载路径 / 上传交引擎 / 外部协议 / 权限弹窗 / 按域名清 Cookie；未做：系统通知栏进度、每站点 profile 严格隔离、下载历史入库 |
