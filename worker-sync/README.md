@@ -61,6 +61,12 @@ curl https://cf-webshell-sync.xxx.workers.dev/v1/health
 之后在任意一台已配对的设备上点「显示配对码」，另一台输进去，就完事了。
 设备数量不限制，配对过的都能连。
 
+> ⚠️ **国内用户**：`*.workers.dev` 在国内基本不可用（转圈、超时、连接被重置）。
+> 给 Worker 挂一个自己的域名（域名加进 Cloudflare → 改 NS → Worker 的
+> Settings → Domains & Routes → Add custom domain）就能通，服务器在境外不用备案。
+> 挂完在 App 里改一下服务地址即可，**不用重新配对**（凭证里的 endpoint 会一起改写）。
+> 详细九步见 [DEPLOY.md](DEPLOY.md) 第 7 步下面那节。
+
 ---
 
 ## 三、为什么别人接不进你的项目

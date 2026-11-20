@@ -566,7 +566,7 @@ class ShellState extends ChangeNotifier {
       throw const SyncException('凭证写不进安全存储（目录只读或磁盘满），这次没有开启同步');
     }
 
-    // 换了空间（或者换了服务地址）就等于换了参照系。
+    // 换了**空间**才等于换了参照系。
     //
     // 本地缓存里的 base/local/version 说的全是**上一个空间**的事。要是原样留着，
     // 第一轮合并看到"远端什么都没有、base 里全是站点"，会判定成"远端把这些站点
@@ -575,10 +575,16 @@ class ShellState extends ChangeNotifier {
     //
     // 只清 base 和 version，**留着 local**：local 是本机现状，保住它，第一轮就会
     // 判成"本地有、远端空 = 本地新增"，站点正常推上去。
+    //
+    // 判据只看 spaceId，**不看服务地址**。真事：`xxx.workers.dev` 在国内被墙，
+    // 用户给 Worker 挂上自定义域名后重新连一次 —— 那是同一台 Worker、同一个 D1、
+    // 同一份数据，只是换了门牌号。以前把"地址变了"也当成换空间，会连墓碑一起清掉，
+    // 于是以前删过的站点从云端复活一遍。地址变但空间没变，base 继续有效。
+    //
+    // 那"同一个 spaceId、却指向一个空库"怎么办？不用在这儿防：
+    // 引擎里那条「服务端被重置」的护栏会清 base、重算 dirty，然后把本机整份推上去。
     final String oldSpace = config.syncSpaceId;
-    final String oldEndpoint = config.syncEndpoint;
-    if (oldSpace.isNotEmpty &&
-        (oldSpace != creds.spaceId || oldEndpoint != creds.endpoint)) {
+    if (oldSpace.isNotEmpty && oldSpace != creds.spaceId) {
       final SyncEngine? engine = sync?.engine;
       if (engine != null) {
         // 墓碑也一起丢掉。它的全部意义是"告诉**同一个空间**里的其它设备这条删了"，
@@ -600,6 +606,54 @@ class ShellState extends ChangeNotifier {
     // 不 await：界面先回去，结果通过 syncStatusText 反映出来。
     final SyncService? s = sync;
     if (s != null) unawaited(s.syncNow(manual: true));
+  }
+
+  /// 换服务地址（典型场景：`xxx.workers.dev` 在国内被墙，给 Worker 挂了自定义域名）。
+  ///
+  /// 为什么不能只改 `config.syncEndpoint`：那个只是**界面上的显示值**。
+  /// 真正发请求用的是安全存储里那份凭证自带的 endpoint
+  /// （见 `SyncClient` 构造，`credentials.endpoint`）。只改显示值 = 界面变了、
+  /// 流量还走老地址，用户会看到"地址明明改对了，还是一条都同步不上"。
+  ///
+  /// 反过来也**不能顺手清 base / version**：同一台 Worker、同一个 D1、
+  /// 同一个 spaceId，只是换了门牌号，数据是同一份。清了 base 会让本机把现有站点
+  /// 当成"全新的一批"整份重推，版本号白涨一轮，其它设备白抖一次。
+  ///
+  /// 返回 null = 成功。
+  Future<String?> syncChangeEndpoint(String raw) async {
+    final String endpoint = raw.trim().replaceAll(RegExp(r'/+$'), '');
+    if (endpoint.isEmpty) {
+      config.syncEndpoint = '';
+      saveNow();
+      notifyListeners();
+      return null;
+    }
+
+    final SyncCredentials? creds = await _credStore.read();
+    // 还没配对：只记下地址，等用户去开启/配对时自然会带进凭证。
+    if (creds == null) {
+      config.syncEndpoint = endpoint;
+      saveNow();
+      notifyListeners();
+      return null;
+    }
+    if (creds.endpoint == endpoint) {
+      config.syncEndpoint = endpoint;
+      saveNow();
+      notifyListeners();
+      return null;
+    }
+
+    final bool stored = await _credStore.write(creds.copyWith(endpoint: endpoint));
+    if (!stored) return '新地址写不进安全存储，这次没改（地址还是原来那个）';
+
+    config.syncEndpoint = endpoint;
+    saveNow();
+    notifyListeners();
+    // 立刻用新地址试一轮，成败都会体现在 syncStatusText 上。
+    final SyncService? s = sync;
+    if (s != null) unawaited(s.syncNow(manual: true));
+    return null;
   }
 
   /// 最近一次生成的配对码（给设置页弹窗用）。

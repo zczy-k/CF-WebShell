@@ -609,8 +609,14 @@ class _SettingsPageState extends State<SettingsPage> {
       _snack('地址要以 https:// 或 http:// 开头');
       return;
     }
-    setState(() => state.config.syncEndpoint = trimmed);
-    state.saveSoon();
+    // 必须走 state 里那个方法：它会把安全存储里凭证自带的 endpoint 一起改写。
+    // 只 setState 改 config 的话，界面变了、请求还发往老地址 —— 老地址被墙时
+    // 用户会以为"改完了还是坏的"。
+    setState(() => _busySync = true);
+    final String? err = await state.syncChangeEndpoint(trimmed);
+    if (!mounted) return;
+    setState(() => _busySync = false);
+    _snack(err ?? '服务地址已更新');
   }
 
   Future<void> _enableFirstDevice() async {
