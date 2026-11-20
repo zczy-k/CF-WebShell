@@ -286,8 +286,8 @@ document-start 注入，只做四件事，且都对失败宽容（单页脚本�
 
 | 输入 | 说明 |
 | --- | --- |
-| `app_name` | App 显示名（Android `android:label`、Windows 窗口标题） |
-| `app_id` | 包名 / 应用 ID，如 `com.example.oa`；**最后一段会被规整成合法 Dart 标识符**，Windows 的 exe 名也用它 |
+| `app_name` | App 显示名（Android `android:label`、Windows 窗口标题、Windows 的 exe 文件名） |
+| `app_id` | 包名 / 应用 ID，如 `com.example.oa`；**最后一段会被规整成合法 Dart 标识符**（那是 `flutter create --project-name` 用的，exe 名不再取自它） |
 | `preset_url` | 预置站点入口（就是一个普通 URL，支持内网 `http://`，会自动补 `https://`） |
 | `preset_name` | 预置站点在列表里显示的名字（留空用域名） |
 | `theme_color` | 主色 `#RRGGBB`（顶栏、图标底色、assets 里的 `themeColor`） |
@@ -295,6 +295,16 @@ document-start 注入，只做四件事，且都对失败宽容（单页脚本�
 | `logo_path` | ① 仓库里放好文件（如 `branding/logo.png`），CI 直接读 |
 | `auto_icon` | ③ 都没给就从预置站点抓图标：先读首页 HTML 里 `<link rel="...icon...">` 声明的（apple-touch 优先，svg 放最后），再兜底试根目录的 `apple-touch-icon*` / `favicon.ico` / `favicon.png` |
 | `allow_add_site` | 白标版是否允许用户再加站点（默认允许） |
+
+**Windows 的 exe 文件名为什么要单独处理**：`flutter create --project-name <X>` 会把 X 写进
+`windows/CMakeLists.txt` 的 `BINARY_NAME`，而 X 只能是合法标识符 —— 于是 exe 天生叫
+`<app_id 最后一段>.exe`，跟 `app_name` 完全无关。用户填了「网站集」，双击到的却是 `wzj.exe`。
+
+中文名也不该直接进 `BINARY_NAME`：CMake 的 target 名会被 Makefile / Ninja 当文件名用，
+塞 Unicode 进去是在赌工具链。所以改成**构建完再改名**：
+`build/windows/x64/runner/Release/<app_name>.exe`。只动文件名，不动二进制 ——
+`data/`、`flutter_windows.dll` 全是相对路径，改名不影响启动。文件名里的非法字符
+（`\ / : * ? " < > |`）会被换成 `_`。
 
 **三条路都没结果时不会打出"没有图标"的包**：用 App 名/域名的首字母按主题色画一个
 （`tools/branding.sh`，之所以取 ASCII 字母是因为 CI 上不保证有中文字体，画汉字会变方框）。
@@ -364,7 +374,7 @@ CF-WebShell/
 | **P2.1** | App 组件测试（`app/test/`，`flutter test`）：把"添加站点 → 写进配置 → 能被浏览页按 id 找到"这类界面流程真跑一遍 | 用例会红 | ✅ 14 用例全绿，CI 的 Android job 里跑；已验证：把修复注释掉用例立刻变红 |
 | **P3** | 桥接层补齐：下载三条路径、上传、外部协议、权限 | 下载能进手机/电脑本地，上传能选文件 | 🟡 已完成：三条下载路径 / 上传交引擎 / 外部协议 / 权限弹窗 / 按域名清 Cookie；未做：系统通知栏进度、每站点 profile 严格隔离、下载历史入库 |
 | **P3.1** | 下载"到本机"这一条链（用户反馈"下载的东西没到本机"+ "下载列表什么都没有"）：Windows 注入脚本认 `a[download]`/保守扩展名/`?download`/链接文字；导航层掐掉下载导航并吞掉自己造成的 `CANCELLED`；落点兜底不再退到系统临时目录；Android 落点从被系统屏蔽的 `Android/data/…` 换到文件管理器看得见的 `Android/media/…`（升级自动迁移）；下载页实时刷新、目录一键打开 | 点下载能进 App 下载器，且文件在哪一眼看得到 | ✅ 已做：脚本逻辑用 Edge 无头真引擎验过（16 种链接 × 两种配置，只有该下载的被接管）；`dart test` 83 用例 + `flutter test` 8 用例守住规则与脚本占位符。仍未覆盖 POST 表单下载（见 §11）|
-| **P4** | 白标 CI：`workflow_dispatch` 输入 + 图标生成 + 产物命名 | 输入名字/图标/网址 → 拿到专属 APP | ✅ 已跑通并验证：`app_name=万能壳白标测试` / `app_id=com.demo.whitelabel` / `preset_url=flutter.dev` 出的包，APK 与 zip 里的 `preset.json`、exe 名（`whitelabel.exe`）、五档图标都对；图标取自站点首页声明 |
+| **P4** | 白标 CI：`workflow_dispatch` 输入 + 图标生成 + 产物命名 | 输入名字/图标/网址 → 拿到专属 APP | ✅ 已跑通并验证：`app_name=万能壳白标测试` / `app_id=com.demo.whitelabel` / `preset_url=flutter.dev` 出的包，APK 与 zip 里的 `preset.json`、五档图标都对；图标取自站点首页声明。（当时 exe 名还取自 `app_id`，现在改成取 `app_name` 了，见 §8「Windows 的 exe 文件名为什么要单独处理」） |
 | **P3.2** | 精修（用户反馈"精修到原生"）：续传加 `If-Range` 校验器（文件变了自动回全量、不拼坏文件）；"保持登录"做成真开关（关掉即清 Cookie + Web Storage + 缓存，浏览页改用 `incognito`）；站点级"信任自签证书"；按站点清登录态补 `localStorage`/`IndexedDB`/`caches` | `dart test` 全绿、`flutter analyze` 干净、真机确认下载 | ✅ 已做：core / app 改动见 §4 / §6 / §7.1；仍受限项见 §11 |
 | **P5** | （按需）自写 Windows WebView2 宿主，补齐 §7 的四个 ❌；每站点 profile 严格隔离 | Windows 下载/上传与 Android 一致 | ⏳ 未开始（触发条件见 §7） |
 

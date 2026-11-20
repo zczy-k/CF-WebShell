@@ -34,7 +34,7 @@ on:
         required: false
         default: ''
       app_id:
-        description: '包名/组织名，例如 com.corp.oa。留空 = dev.webshell.webshell（最后一段决定 Windows 的 exe 名）'
+        description: '包名/组织名，例如 com.corp.oa。留空 = dev.webshell.webshell。只影响包名与内部标识，Windows 的 exe 文件名看 app_name'
         required: false
         default: ''
       preset_url:
@@ -743,6 +743,40 @@ jobs:
 
       # 只拷 exe 是不够的：同目录的 flutter_windows.dll 与 data/ 缺一不可，
       # 所以压的是整个 Release 目录，解压即用。
+      # exe 文件名跟 app_name 无关 —— 它来自 `flutter create --project-name <名字>`，
+      # 也就是 windows/CMakeLists.txt 里的 BINARY_NAME，而那个名字取自 app_id 的最后
+      # 一段。所以 app_name=网站集 + app_id=com.wzj.wzj 出来的是 wzj.exe：用户双击的
+      # 时候看到的就是 wzj，不是他填的名字。这里按 app_name 改掉。
+      #
+      # 只改文件名，不动二进制：Flutter 的 data/、flutter_windows.dll 全是相对路径，
+      # 改名不影响启动（已实测：改名后双击能正常跑）。
+      - name: 按 App 名字重命名 exe
+        shell: pwsh
+        run: |
+          $src = "build\windows\x64\runner\Release"
+          $exes = @(Get-ChildItem -LiteralPath $src -Filter *.exe -File)
+          if ($exes.Count -ne 1) {
+            throw "预期 Release 下只有 1 个 exe，实际 $($exes.Count) 个：$(($exes | ForEach-Object Name) -join ', ')"
+          }
+          $old = $exes[0]
+
+          # app_name 是自由文本（可以中文、可以带空格），先过滤掉文件名非法字符
+          $safe = "$env:APP_NAME_EFFECTIVE"
+          foreach ($c in [System.IO.Path]::GetInvalidFileNameChars()) {
+            $safe = $safe.Replace([string]$c, '_')
+          }
+          $safe = $safe.Trim().TrimEnd('.')
+          if ([string]::IsNullOrWhiteSpace($safe)) { $safe = 'WebShell' }
+
+          $target = Join-Path $src ($safe + '.exe')
+          if ($old.FullName -ne $target) {
+            Move-Item -LiteralPath $old.FullName -Destination $target -Force
+            Write-Host "exe 重命名：$($old.Name) -> $safe.exe"
+          } else {
+            Write-Host "exe 名已经是 $safe.exe，跳过"
+          }
+          Get-ChildItem -LiteralPath $src -Filter *.exe | Select-Object -ExpandProperty Name
+
       - name: 打包便携版
         shell: pwsh
         run: |
