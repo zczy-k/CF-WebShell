@@ -80,6 +80,7 @@ class _SettingsPageState extends State<SettingsPage> {
         '${state.syncPendingRemovals}',
         '${state.syncLastRunMs}',
         '${state.syncDevices.length}',
+        state.syncProfile.key,
       ].join('|');
 
   void _onStateChanged() {
@@ -416,6 +417,16 @@ class _SettingsPageState extends State<SettingsPage> {
               ),
       ),
       const Divider(height: 1, indent: 16, endIndent: 16),
+      ListTile(
+        leading: const Icon(Icons.speed),
+        title: const Text('同步频率'),
+        subtitle: Text(
+          '${_profileLabel(state.syncProfile)}\n${_profileHint(state.syncProfile)}',
+        ),
+        isThreeLine: true,
+        trailing: const Icon(Icons.tune),
+        onTap: _pickSyncProfile,
+      ),
       ListTile(
         leading: const Icon(Icons.qr_code_2),
         title: const Text('显示配对码'),
@@ -865,6 +876,57 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   /// 一个只收一行文字的对话框。取消返回 null。
+  /// 同步频率档位 → 显示名。
+  static String _profileLabel(SyncProfile p) => switch (p) {
+        SyncProfile.balanced => '平衡（默认）',
+        SyncProfile.saver => '省电',
+        SyncProfile.realtime => '实时',
+        SyncProfile.manual => '仅手动',
+      };
+
+  /// 档位 → 一句人话（要能让用户自己判断该选哪个，不能只写"快/慢"）。
+  static String _profileHint(SyncProfile p) => switch (p) {
+        SyncProfile.balanced => '活跃时每 1 分钟问一次，闲置后逐步放慢到 10 分钟一次',
+        SyncProfile.saver => '起步 1 分钟，闲置后最慢 30 分钟一次（挂着不用的设备选它）',
+        SyncProfile.realtime => '始终每 1 分钟一次，别的设备改了什么，这台最先看到',
+        SyncProfile.manual => '完全不自己轮询，只在你点同步、回到前台、或本地有改动时才跑',
+      };
+
+  Future<void> _pickSyncProfile() async {
+    final SyncProfile current = state.syncProfile;
+    final SyncProfile? picked = await showDialog<SyncProfile>(
+      context: context,
+      builder: (BuildContext dialogContext) => SimpleDialog(
+        title: const Text('同步频率'),
+        children: <Widget>[
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 0, 24, 12),
+            child: Text(
+              // 这一句是整个功能最容易被误解的地方，必须写死在界面上：
+              // 用户会以为"选了实时就会一直烧流量"，实际后台是彻底静默的。
+              'App 在后台（切走、收进托盘、锁屏）时一律不轮询，只有在前台才按下面'
+              '这个节奏去问。任何时候只要你改了站点，都会在 8 秒内推上去 —— '
+              '上传是事件驱动的，跟这个设置无关。',
+              style: const TextStyle(fontSize: 12),
+            ),
+          ),
+          for (final SyncProfile p in SyncProfile.values)
+            RadioListTile<SyncProfile>(
+              value: p,
+              groupValue: current,
+              title: Text(_profileLabel(p)),
+              subtitle: Text(_profileHint(p), style: const TextStyle(fontSize: 12)),
+              onChanged: (SyncProfile? v) => Navigator.of(dialogContext).pop(v),
+            ),
+        ],
+      ),
+    );
+    if (picked == null || picked == current) return;
+    await state.setSyncProfile(picked);
+    if (!mounted) return;
+    _snack('同步频率已改为「${_profileLabel(picked)}」');
+  }
+
   Future<String?> _askText({
     required String title,
     required TextEditingController controller,

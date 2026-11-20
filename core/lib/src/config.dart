@@ -8,6 +8,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'models.dart';
+import 'sync/pacing.dart';
 import 'url_utils.dart';
 
 class ShellConfig {
@@ -27,6 +28,7 @@ class ShellConfig {
     this.syncEnabled = false,
     this.syncEndpoint = '',
     this.syncSpaceId = '',
+    this.syncProfile = SyncProfile.balanced,
     Branding? branding,
   })  : sites = sites ?? <SiteProfile>[],
         presetIds = presetIds ?? <String>[],
@@ -88,6 +90,13 @@ class ShellConfig {
   /// 同一个空间里的设备共享同一份站点清单。设备令牌（真正的凭证）不在这里，
   /// 它在系统安全存储里（Windows 上走 DPAPI，绑定当前用户+这台机器）。
   String syncSpaceId;
+
+  /// 同步频率档位：活跃/ 省电 / 实时 / 仅手动。见 [SyncPacing]。
+  ///
+  /// 默认 [SyncProfile.balanced] —— 1 分钟活跃、闲置逐步退到 10 分钟。
+  /// 这是唯一一个"存在即影响耗电"的开关，所以持久化时只在非默认值才写，
+  /// 老配置（没这个字段）读回来自然就是默认档。
+  SyncProfile syncProfile;
 
   /// 同步配置是否完整可用（开关打开 + 地址 + 空间 id 都在）。
   bool get syncConfigured =>
@@ -179,6 +188,7 @@ class ShellConfig {
         if (syncEnabled) 'syncEnabled': true,
         if (syncEndpoint.isNotEmpty) 'syncEndpoint': syncEndpoint,
         if (syncSpaceId.isNotEmpty) 'syncSpaceId': syncSpaceId,
+        if (syncProfile != SyncProfile.balanced) 'syncProfile': syncProfile.key,
         'branding': branding.toJson(),
       };
 
@@ -217,6 +227,7 @@ class ShellConfig {
     config.syncEnabled = _asBool(map['syncEnabled'], false);
     config.syncEndpoint = _asString(map['syncEndpoint']) ?? '';
     config.syncSpaceId = _asString(map['syncSpaceId']) ?? '';
+    config.syncProfile = SyncProfile.fromKey(map['syncProfile']);
 
     final Object? rawPresetIds = map['presetIds'];
     if (rawPresetIds is List) {

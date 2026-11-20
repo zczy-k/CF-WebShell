@@ -14,6 +14,7 @@ export 'src/models.dart';
 export 'src/paths.dart';
 export 'src/sync/client.dart';
 export 'src/sync/doc.dart';
+export 'src/sync/pacing.dart';
 export 'src/sync/service.dart';
 export 'src/sync/state.dart';
 export 'src/update.dart';

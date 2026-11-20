@@ -399,7 +399,11 @@ class ShellState extends ChangeNotifier {
       state: cached,
       onConfigChanged: _onRemoteApplied,
     );
-    sync = SyncService(engine: engine, onChanged: notifyListeners);
+    sync = SyncService(
+      engine: engine,
+      onChanged: notifyListeners,
+      pacing: SyncPacing.of(config.syncProfile),
+    );
   }
 
   /// 合并结果已经写进 [config]：存盘 + 刷新界面。
@@ -493,6 +497,36 @@ class ShellState extends ChangeNotifier {
       case SyncStatus.error:
         return s?.message ?? '同步出错';
     }
+  }
+
+  /// 同步频率档位（设置页四选一）。
+  SyncProfile get syncProfile => config.syncProfile;
+
+  /// 换档位。立刻生效，不用重启、不用断线重连。
+  ///
+  /// 只改本地调度参数，**不进同步文档** —— 手机和省电策略、台式机和实时策略，
+  /// 本来就该各调各的。把它同步出去反而会让"我在电脑上设了实时"变成手机也费电。
+  Future<void> setSyncProfile(SyncProfile p) async {
+    if (config.syncProfile == p) return;
+    config.syncProfile = p;
+    saveSoon();
+    sync?.setPacing(SyncPacing.of(p));
+    notifyListeners();
+  }
+
+  /// 下一次自动同步大概还有多久（null = 不会自己跑）。
+  Duration? get syncNextPollIn => sync?.nextPollIn;
+
+  /// 应用是否在前台可见。后台时同步完全停摆（省电，见 `SyncService.setForeground`）。
+  bool get syncForeground => sync?.foreground ?? false;
+
+  /// 前台可见性变化。桌面端托盘/最小化、移动端生命周期都会打到这儿。
+  void setSyncForeground(bool visible) {
+    final SyncService? s = sync;
+    if (s == null) return;
+    if (s.foreground == visible) return;
+    s.setForeground(visible);
+    notifyListeners();
   }
 
   /// 用户点了"确认删除"：放行一轮骤降护栏，然后照常同步。

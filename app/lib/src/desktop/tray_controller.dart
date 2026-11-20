@@ -49,6 +49,7 @@ class TrayController with TrayListener, WindowListener {
     required this.appName,
     required this.hideToTray,
     this.onBeforeQuit,
+    this.onVisibilityChanged,
   });
 
   /// 展示在托盘提示与菜单里的名字。
@@ -61,6 +62,19 @@ class TrayController with TrayListener, WindowListener {
   /// 而 _quit 末尾有 300ms 硬切 —— 不先 flush 的话，退出前最后几秒的
   /// 改动（改设置、加站点、下载进度）可能还没写到盘进程就没了。
   final Future<void> Function()? onBeforeQuit;
+
+  /// 窗口可见性变了（true = 回到屏幕上，false = 收托盘 / 最小化）。
+  ///
+  /// **为什么要在这里补一刀**：同步的轮询定时器在隐藏窗口里一分不差地跳，
+  /// 每次跳都发一个 HTTP —— 用户以为关了，其实每分钟都在唤醒网卡。
+  /// `window_manager.hide()` 走的是 `SW_HIDE`，Flutter 引擎的
+  /// `AppLifecycleState` 推断**不一定**跟着变（它不是 Win32 的
+  /// `WM_SHOWWINDOW` 回调），所以 `SyncLifecycle` 那一路在桌面上不可靠，
+  /// 必须以本类的窗口事件为准。
+  ///
+  /// 三类事件都往这儿打：收托盘（[onWindowClose]）、最小化、托盘恢复。
+  /// 重复值由 `SyncService.setForeground` 内部短路，这里不必去重。
+  final void Function(bool visible)? onVisibilityChanged;
 
   bool _started = false;
 
@@ -131,6 +145,9 @@ class TrayController with TrayListener, WindowListener {
         _wasMaximized = false;
       }
       await windowManager.hide();
+      // 窗口没了 = 同步进后台：掐掉轮询定时器，只留"手上还有没推的改动就走
+      // 最后一轮"那一次补推（见 SyncService.setForeground）。
+      onVisibilityChanged?.call(false);
       // WebView2 的内容窗是独立顶层弹窗，不会跟着宿主隐藏 —— 不清掉它
       // 就残留在桌面吞点击（见 WebViewWindowGuard 类注释）。
       WebViewWindowGuard.instance.hideOrphaned();
@@ -146,12 +163,16 @@ class TrayController with TrayListener, WindowListener {
   @override
   void onWindowMinimize() {
     WebViewWindowGuard.instance.hideOrphaned();
+    // 最小化进任务栏 = 用户不看了。轮询在最小化状态下没有任何意义，
+    // 停掉（改完东西切走的补推在 setForeground 里兜着）。
+    onVisibilityChanged?.call(false);
   }
 
   /// 任务栏还原（从最小化回来）：把清掉的 WebView2 窗放回来。
   @override
   void onWindowRestore() {
     WebViewWindowGuard.instance.showSwept();
+    onVisibilityChanged?.call(true);
   }
 
   /// 焦点兜底：万一 restore 事件因插件时序没到，窗口拿到焦点时也一定
@@ -159,6 +180,7 @@ class TrayController with TrayListener, WindowListener {
   @override
   void onWindowFocus() {
     WebViewWindowGuard.instance.showSwept();
+    onVisibilityChanged?.call(true);
   }
 
   // ------------------------------------------------------------- rect 对账
@@ -240,6 +262,7 @@ class TrayController with TrayListener, WindowListener {
     }
     // 宿主已可见：把收托盘/最小化时清掉的 WebView2 窗放回来。
     WebViewWindowGuard.instance.showSwept();
+    onVisibilityChanged?.call(true);
     await windowManager.focus();
     // 兜底：前台授权失效（键盘/脚本触发）导致 focus 没生效时才抖。
     try {

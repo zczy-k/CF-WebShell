@@ -66,6 +66,11 @@ Future<void> main() async {
         state.saveNow();
         state.saveDownloadsNow();
       },
+      // 同步的前后台开关。**桌面端这一路才是准的** ——
+      // window_manager.hide()/最小化都不保证触发 Flutter 的
+      // AppLifecycleState，只有 Win32 窗口事件是确定的（见 TrayController
+      // 里 onVisibilityChanged 的注释）。
+      onVisibilityChanged: state.setSyncForeground,
     );
     await tray.start();
   }
@@ -74,11 +79,19 @@ Future<void> main() async {
   // 不 await：启动路径不等网络，弹窗与否由它内部等第一帧决定。
   unawaited(runStartupUpdateCheck(state));
 
-  // 同步：注册"回到前台就拉一次"，再让调度器自己排轮询（3 秒后第一轮）。
-  // 没开同步时 SyncService 存在但不干活，这里也不必分支太多。
+  // 同步：把"前台/后台"接到调度器，再让调度器自己排第一轮（3 秒后）。
+  //
+  // 这里接的两个回调是**同一件事**的两个来源：
+  // * 移动端靠 AppLifecycleState（切走 / 回到前台）；
+  // * 桌面端靠 TrayController 的窗口事件（收托盘 / 最小化 / 恢复）。
+  // 重复值由 SyncService.setForeground 内部短路，不用担心两路打架。
+  //
+  // 后台一律不轮询 —— 这一条在 core 里硬编码死了，任何档位都绕不过去。
+  // 唯一例外：切到后台那一刻手上还有没推上去的改动，补推最后一轮
+  // （否则"改完就关窗口"的那次修改永远到不了云端）。
   final SyncService? sync = state.sync;
   if (sync != null) {
-    WidgetsBinding.instance.addObserver(SyncLifecycle(sync.onResume));
+    WidgetsBinding.instance.addObserver(SyncLifecycle(state.setSyncForeground));
     sync.start();
   }
 

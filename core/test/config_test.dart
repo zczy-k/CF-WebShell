@@ -550,4 +550,45 @@ void main() {
       expect(nested.file.existsSync(), isTrue);
     });
   });
+
+  group('同步频率档位', () {
+    late Directory dir;
+    setUp(() {
+      dir = Directory.systemTemp.createTempSync('ws-cfg-profile-');
+    });
+    tearDown(() {
+      try {
+        dir.deleteSync(recursive: true);
+      } catch (_) {}
+    });
+
+    test('存盘再读回来还是同一个档', () {
+      final ConfigFile file = ConfigFile(File('${dir.path}/profile.json'));
+      file.save(ShellConfig(
+        syncEnabled: true,
+        syncEndpoint: 'https://sync.example.com',
+        syncSpaceId: 'space-1',
+        syncProfile: SyncProfile.saver,
+      ));
+      expect(file.load(Branding.generic).syncProfile, SyncProfile.saver);
+    });
+
+    test('默认档不写进 JSON（老配置读回来自然就是它）', () {
+      final ShellConfig config = ShellConfig(syncEnabled: true);
+      expect(config.syncProfile, SyncProfile.balanced);
+      expect(config.toJson().containsKey('syncProfile'), isFalse);
+    });
+
+    test('JSON 里是垃圾值也不影响其它字段，退回默认档', () {
+      final ShellConfig config = ShellConfig.fromJson(<String, dynamic>{
+        'syncEnabled': true,
+        'syncEndpoint': 'https://sync.example.com',
+        'syncSpaceId': 'space-1',
+        'syncProfile': 'warp-speed',
+      });
+      expect(config.syncProfile, SyncProfile.balanced);
+      expect(config.syncSpaceId, 'space-1');
+      expect(config.syncConfigured, isTrue);
+    });
+  });
 }
