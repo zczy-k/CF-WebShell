@@ -22,17 +22,17 @@
 
 | 文件 | 干嘛用 | 直接打开这个网址复制 |
 | --- | --- | --- |
-| `schema-plain.sql` | 建表（纯 SQL，**一行注释都没有**，粘进网页控制台不会报错） | https://raw.githubusercontent.com/zczy-k/Starport/main/worker-sync/schema-plain.sql |
+| `schema-web.sql` | 建表（纯 SQL，**一行注释都没有**，粘进网页控制台不会报错） | https://raw.githubusercontent.com/zczy-k/Starport/main/worker-sync/schema-web.sql |
 | `index.js` | 程序本体（真正的同步逻辑） | https://raw.githubusercontent.com/zczy-k/Starport/main/worker-sync/src/index.js |
 
 打开上面两个网址，看到纯文字后按 `Ctrl+A` 全选、`Ctrl+C` 复制，先放着待会粘。
 
 > 这两个链接是公开只读的，复制不会改动任何东西。
 >
-> ⚠️ `schema-plain.sql` 刚改过（去掉了文件头那几行 `--` 注释）。
-> 如果你打开链接还看到 `--` 开头的字，是 GitHub 的缓存没刷新 ——
-> 在网址末尾加个 `?v=2` 再打开，或者等几分钟再试。
-> **正确文件打开后第一行就是 `CREATE TABLE`，一个 `--` 都没有。**
+> 这个文件是专门给网页控制台做的，**只有 8 行纯 SQL，第一行就是 `CREATE TABLE`**。
+> 打开后如果看到任何 `--` 开头的字，说明拿错了 —— 那份带中文说明的
+> `schema.sql` / `schema-plain.sql` 网页控制台读不了，会报 `No SQL statements detected.`。
+> 认准文件名 `schema-web.sql`。
 
 ---
 
@@ -61,12 +61,11 @@ Storage & Databases  →  D1 SQL Database  →  Create database
 > 概览页只有数字，没有输入框，你在那粘什么都不会发生。
 
 **先把鼠标点进那个输入框**（点一下，看到光标在闪），`Ctrl+A` 全选、`Ctrl+C` 复制
-前面准备好的 `schema-plain.sql`，`Ctrl+V` 粘进去，最后点 **Execute / 执行**。
+前面准备好的 `schema-web.sql`，`Ctrl+V` 粘进去，最后点 **Execute / 执行**。
 
 > 粘进去之后，输入框里**第一行就应该是 `CREATE TABLE`**，一个 `--` 都不该有。
-> 如果你看到 `--` 开头的字，说明粘错文件了 —— 那份叫 `schema.sql`（带中文说明的），
-> 网页控制台读不了那些说明，会报 `No SQL statements detected.`。
-> 要用的是 `schema-plain.sql`，这份只有 8 行纯 SQL。
+> 如果看到 `--` 开头的字，说明拿错文件了 —— 要的是 `schema-web.sql`，
+> 不是带中文说明的 `schema.sql` / `schema-plain.sql`。
 
 ✅ **做完你会看到**：下面出来一片执行结果，没有红色报错。
 
@@ -82,7 +81,7 @@ spaces    devices    pair_codes    space_history    rate
 
 1. 确认你点的是「库 → 控制台」那个**带输入框**的标签，不是概览页
 2. 粘完先别急着点执行，抬眼看输入框里有没有 `CREATE TABLE` 字样；空的就重新点一下输入框再粘
-3. 还是不行，就把 `schema-plain.sql` 里那 8 条语句**一条一条单独粘、单独执行**，8 次点完也是 5 张表
+3. 还是不行，就把 `schema-web.sql` 里那 8 条语句**一条一条单独粘、单独执行**，8 次点完也是 5 张表
 
 ---
 

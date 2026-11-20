@@ -1,0 +1,8 @@
+CREATE TABLE IF NOT EXISTS spaces (id TEXT PRIMARY KEY, created_at INTEGER NOT NULL, version INTEGER NOT NULL DEFAULT 0, doc TEXT NOT NULL DEFAULT '{}', updated_at INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS devices (id TEXT PRIMARY KEY, space_id TEXT NOT NULL, name TEXT NOT NULL DEFAULT '', token_hash TEXT NOT NULL UNIQUE, created_at INTEGER NOT NULL, last_seen INTEGER NOT NULL DEFAULT 0, revoked INTEGER NOT NULL DEFAULT 0);
+CREATE INDEX IF NOT EXISTS idx_devices_space ON devices (space_id);
+CREATE TABLE IF NOT EXISTS pair_codes (code TEXT PRIMARY KEY, space_id TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, used INTEGER NOT NULL DEFAULT 0);
+CREATE INDEX IF NOT EXISTS idx_pair_expires ON pair_codes (expires_at);
+CREATE TABLE IF NOT EXISTS space_history (space_id TEXT NOT NULL, version INTEGER NOT NULL, doc TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY (space_id, version));
+CREATE INDEX IF NOT EXISTS idx_history_created ON space_history (space_id, created_at);
+CREATE TABLE IF NOT EXISTS rate (key TEXT PRIMARY KEY, count INTEGER NOT NULL DEFAULT 0, window_start INTEGER NOT NULL DEFAULT 0);

@@ -357,11 +357,12 @@ Starport/
     lib/src/pages/{home,browser,site_edit,downloads,settings}_page.dart
     lib/src/widgets/site_avatar.dart
   worker-sync/                 ← 同步中转站（Cloudflare Worker + D1，零 npm 依赖）
-    README.md                  ← 命令行部署
-    DEPLOY.md                  ← 网页部署教程（含国内自定义域名）
+    README.md                  ← 命令行速查
+    DEPLOY.md                  ← 网页部署教程（纯网页，不用装工具）
+    DEPLOY-CLI.md              ← 命令行部署 / 改名搬家 / 踩坑
     INTERNALS.md               ← 鉴权模型 / 接口 / 历史版本 / 额度 / 改代码前必读
     schema.sql                 ← 建表（带注释，命令行用）
-    schema-plain.sql           ← 建表（无注释，网页控制台粘这个）
+    schema-web.sql             ← 建表（纯 SQL 零注释，网页控制台粘这个）
     src/index.js               ← 全部逻辑，621 行
   tools/
     branding.sh                ← 生成图标（Android 各密度 + 自适应 + Windows .ico）与 preset.json
