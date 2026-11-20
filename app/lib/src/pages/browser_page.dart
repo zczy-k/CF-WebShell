@@ -97,18 +97,6 @@ class _BrowserPageState extends State<BrowserPage> {
       _title = site.displayName;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        // 只在这一刻做一次，之后全程不碰焦点。
-        //
-        // 为什么需要：Flutter 在 pointer down 时会先跑一次「清焦点」（点击落在不可聚焦
-        // 区域就把当前焦点收掉）。从首页/搜索页进来时，上一个页面的输入框往往还攥着
-        // 焦点，于是用户对网页输入框的**第一次点击**被这一下"清焦点"吃掉 —— 光标不出、
-        // 键盘不弹，必须再点一次。三端同一个病根，因为这是 Flutter 框架层的行为。
-        //
-        // 为什么只做一次：此时 WebView 还没创建、更没拿到焦点，清掉的是**别人的**焦点，
-        // 不会误伤。上一版在 onLoadStop / onWebViewCreated 里也清，结果 SPA 的加载事件
-        // 常常在用户点进输入框之后才到，一到就把 WebView 刚拿到的焦点收走 ——
-        // 表现是"完全输不进去"。那两处已经删掉了。
-        FocusScope.of(context).unfocus();
         widget.state.openSite(site);
       });
     }
