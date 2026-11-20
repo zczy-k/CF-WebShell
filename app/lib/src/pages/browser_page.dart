@@ -7,7 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
-import 'package:webshell_core/webshell_core.dart';
+import 'package:starport_core/starport_core.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../engine/scripts.dart';
@@ -873,7 +873,7 @@ class _BrowserPageState extends State<BrowserPage> {
     await _pdfAbort(key);
     if (key.isEmpty) return;
     try {
-      final Directory dir = await Directory.systemTemp.createTemp('webshell-pdf-');
+      final Directory dir = await Directory.systemTemp.createTemp('starport-pdf-');
       final String path = '${dir.path}${Platform.pathSeparator}preview.pdf';
       _pdfPaths[key] = path;
       _pdfSinks[key] = File(path).openWrite();

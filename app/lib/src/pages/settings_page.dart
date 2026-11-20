@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
-import 'package:webshell_core/webshell_core.dart';
+import 'package:starport_core/starport_core.dart';
 
 import '../open.dart';
 import '../state.dart';
@@ -259,7 +259,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 subtitle: Text(
                   // 版本号后面那串短哈希是构建期注进来的，用来分辨"哪个包"。
                   // 上一行标题已经是 App 名字了，这里别再把品牌名重复一遍 ——
-                  // 白标用户改过名字后，重复写"网页坞"只会让人以为改失败了。
+                  // 白标用户改过名字后，重复写"星港"只会让人以为改失败了。
                   '版本 ${branding.appVersion}$_buildTag\n'
                   '${branding.isWhiteLabel ? '专属（白标）版本' : '通用版本'}\n'
                   '引擎：Android 系统 WebView / Windows WebView2',

@@ -1,12 +1,12 @@
 import 'dart:convert';
 
-import 'package:webshell_core/webshell_core.dart';
+import 'package:starport_core/starport_core.dart';
 
 import 'local_secure_store.dart';
 
 /// 把同步凭证放进 `<数据目录>/secrets.bin`（和站点密码同一个抽屉）。
 ///
-/// 为什么凭证不能进 `webshell.json`：那里面装的是"设备令牌"，拿到它就能读写
+/// 为什么凭证不能进 `starport.json`：那里面装的是"设备令牌"，拿到它就能读写
 /// 整个同步空间的站点清单 —— 等于拿到账号。放在 secrets.bin 里，Windows 上是
 /// DPAPI 加密（别的用户、别的机器都解不开），Android 上是应用私有目录 + 混淆。
 ///

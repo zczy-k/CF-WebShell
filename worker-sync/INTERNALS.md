@@ -98,7 +98,7 @@ KV 免费额度是 **1000 写/天**，而且写进去之后最多 60 秒才全�
 - **库里存的文档解析不出来时，一律返回 `corrupt_doc` 500，当成空文档处理是错的。**
   空文档在合并里等于"远端把站点全删了"，一次解析失败就会让所有设备跟着清空。
   宁可这一轮同步失败（用户看到重试），也不能把坏数据当真。
-- 历史版本想立刻清空：`npx wrangler d1 execute cf-webshell-sync --remote
+- 历史版本想立刻清空：`npx wrangler d1 execute cf-starport-sync --remote
   --command="DELETE FROM space_history"`。平时靠 `HISTORY_KEEP` /
   `HISTORY_TTL_DAYS` 自动裁剪，不用管。
 

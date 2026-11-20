@@ -7,7 +7,7 @@ library;
 import 'dart:async';
 import 'dart:io';
 
-import 'package:webshell_core/webshell_core.dart';
+import 'package:starport_core/starport_core.dart';
 
 /// 服务端上的一个"文件"。
 class FakeFile {

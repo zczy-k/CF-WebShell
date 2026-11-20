@@ -2,7 +2,7 @@ name: build
 
 # 触发标记：2026-11-20 重跑（UI 改版 9a7b6a2 之后的第一次真机构建）
 
-# 网页坞的构建（仓库名与 Dart 包名里的 WebShell 是内部英文代号，界面上不出现）。
+# 星港的构建（仓库名与 Dart 包名里的 Starport 是内部英文代号，界面上不出现）。
 # 两种产物都从这里出：
 #   * 直接 push：打「通用版」（没有预置站点，用户自己加）—— 用来验证代码能编译、能跑；
 #   * 手动 Run workflow 填参数：打「白标版」（预置站点 + 名字/包名/图标/主题色/版本号）。
@@ -32,11 +32,11 @@ on:
     inputs:
       # 说明文字都按「留空会怎样」写，别写术语：填表的人是普通用户，不是开发者。
       app_name:
-        description: 'App 显示名 —— 安卓桌面图标名、Windows 窗口标题、exe 文件名都用它，可以写中文。留空 = 网页坞'
+        description: 'App 显示名 —— 安卓桌面图标名、Windows 窗口标题、exe 文件名都用它，可以写中文。留空 = 星港'
         required: false
         default: ''
       app_id:
-        description: '包名/应用 ID，如 com.corp.oa。只影响安卓包名和内部标识，改不了 exe 文件名。留空 = dev.webshell.webshell'
+        description: '包名/应用 ID，如 com.corp.oa。只影响安卓包名和内部标识，改不了 exe 文件名。留空 = dev.starport.starport'
         required: false
         default: ''
       app_version:
@@ -184,8 +184,8 @@ jobs:
       # 每次构建都把"这一版到底是什么"钉在日志和 Summary 上。
       #
       # 真事：push 触发的运行拿不到任何输入（app_name / preset_sites 全空），
-      # 打出来的必然是"通用版"——名字 网页坞、一个预置站点都没有；而产物
-      # （webshell-android-apk / webshell-windows-x64）每次都被同名覆盖。
+      # 打出来的必然是"通用版"——名字 星港、一个预置站点都没有；而产物
+      # （starport-android-apk / starport-windows-x64）每次都被同名覆盖。
       # 用户很容易把 push 那次的文件当成自己手动填参数那次的，然后问
       # "我明明填了名字，怎么还是默认名，还多出别人的站点"。
       # 这两条信息（名字 + 预置站点个数）写死在构建页面上，不用再猜。
@@ -401,9 +401,9 @@ jobs:
           elif [ -f ../branding/release.jks ]; then
             echo "keystore 来源：仓库 branding/release.jks"
             cp ../branding/release.jks "$RUNNER_TEMP/ks/release.jks"
-            printf 'webshell-release' > "$RUNNER_TEMP/ks/store-pass.txt"
+            printf 'starport-release' > "$RUNNER_TEMP/ks/store-pass.txt"
             : > "$RUNNER_TEMP/ks/alias.txt"
-            printf 'webshell-release' > "$RUNNER_TEMP/ks/key-pass.txt"
+            printf 'starport-release' > "$RUNNER_TEMP/ks/key-pass.txt"
           else
             echo "keystore 来源：Flutter 模板 debug keystore（兜底）"
             cp "$HOME/.android/debug.keystore" "$RUNNER_TEMP/ks/release.jks"
@@ -609,11 +609,11 @@ jobs:
           # 名字里带上版本名和运行号：同一个 artifact 只留最后一份，
           # 用户下下来一堆 apk 时靠文件名就能对上是哪一次。
           cp build/app/outputs/flutter-apk/app-release.apk \
-             "$RUNNER_TEMP/out/webshell-${APP_ID_EFFECTIVE}-v${APP_VERSION_NAME}-${{ github.run_number }}.apk"
+             "$RUNNER_TEMP/out/starport-${APP_ID_EFFECTIVE}-v${APP_VERSION_NAME}-${{ github.run_number }}.apk"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: webshell-android-apk
+          name: starport-android-apk
           path: ${{ runner.temp }}/out/*.apk
           if-no-files-found: error
           retention-days: 30
@@ -831,7 +831,7 @@ jobs:
             $safe = $safe.Replace([string]$c, '_')
           }
           $safe = $safe.Trim().TrimEnd('.')
-          if ([string]::IsNullOrWhiteSpace($safe)) { $safe = '网页坞' }
+          if ([string]::IsNullOrWhiteSpace($safe)) { $safe = '星港' }
 
           $target = Join-Path $src ($safe + '.exe')
           if ($old.FullName -ne $target) {
@@ -849,14 +849,14 @@ jobs:
           if (-not (Test-Path $src)) { throw "没找到产物目录：$src" }
           $ver = $env:APP_VERSION_NAME
           if ([string]::IsNullOrWhiteSpace($ver)) { $ver = '0.0.0' }
-          $out = "$env:RUNNER_TEMP\webshell-windows-$env:APP_ID_EFFECTIVE-v$ver.zip"
+          $out = "$env:RUNNER_TEMP\starport-windows-$env:APP_ID_EFFECTIVE-v$ver.zip"
           Compress-Archive -Path "$src\*" -DestinationPath $out -CompressionLevel Optimal
           Write-Host "产物：" (Get-Item $out).Name (Get-Item $out).Length "bytes"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: webshell-windows-x64
-          path: ${{ runner.temp }}/webshell-windows-*.zip
+          name: starport-windows-x64
+          path: ${{ runner.temp }}/starport-windows-*.zip
           if-no-files-found: error
           retention-days: 30
 

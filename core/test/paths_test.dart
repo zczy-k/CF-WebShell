@@ -1,5 +1,5 @@
 import 'package:test/test.dart';
-import 'package:webshell_core/webshell_core.dart';
+import 'package:starport_core/starport_core.dart';
 
 void main() {
   group('appFolderName：App 名 → 公共下载子文件夹名', () {
@@ -13,7 +13,7 @@ void main() {
     });
 
     test('英文 / 字母 / 数字名直接用原名（保留大小写）', () {
-      expect(appFolderName('WebShell'), 'WebShell');
+      expect(appFolderName('Starport'), 'Starport');
       expect(appFolderName('TXT2APP'), 'TXT2APP');
       expect(appFolderName('abc 123'), 'abc 123');
     });

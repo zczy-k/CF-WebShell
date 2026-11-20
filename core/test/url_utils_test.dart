@@ -1,5 +1,5 @@
 import 'package:test/test.dart';
-import 'package:webshell_core/webshell_core.dart';
+import 'package:starport_core/starport_core.dart';
 
 void main() {
   group('normalizeUrl', () {

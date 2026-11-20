@@ -2,10 +2,10 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:webshell/src/icons.dart';
-import 'package:webshell/src/pages/home_page.dart';
-import 'package:webshell/src/state.dart';
-import 'package:webshell_core/webshell_core.dart';
+import 'package:starport/src/icons.dart';
+import 'package:starport/src/pages/home_page.dart';
+import 'package:starport/src/state.dart';
+import 'package:starport_core/starport_core.dart';
 
 /// 测试里不发真 HTTP、不往磁盘写图标。
 class _NoNetworkIcons extends IconFetcher {
@@ -37,12 +37,12 @@ class _NoNetworkTransport implements DownloadTransport {
 
 class _Harness {
   _Harness()
-      : dir = Directory.systemTemp.createTempSync('webshell_test'),
+      : dir = Directory.systemTemp.createTempSync('starport_test'),
         config = ShellConfig();
 
   final Directory dir;
   final ShellConfig config;
-  File get configFile => File('${dir.path}/webshell.json');
+  File get configFile => File('${dir.path}/starport.json');
   File get downloadsFile => File('${dir.path}/downloads.json');
 
   late final ShellState state = ShellState.forTest(

@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'package:webshell_core/webshell_core.dart';
+import 'package:starport_core/starport_core.dart';
 
 /// 注入到每个页面的桥接脚本。
 ///

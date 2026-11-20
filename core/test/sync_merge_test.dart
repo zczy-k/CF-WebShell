@@ -6,7 +6,7 @@
 library;
 
 import 'package:test/test.dart';
-import 'package:webshell_core/webshell_core.dart';
+import 'package:starport_core/starport_core.dart';
 
 const String kUrlA = 'https://a.example.com';
 const String kUrlB = 'https://b.example.com';

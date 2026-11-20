@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:webshell_core/webshell_core.dart';
+import 'package:starport_core/starport_core.dart';
 
 import 'open.dart';
 

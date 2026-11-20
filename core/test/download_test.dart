@@ -1,7 +1,7 @@
 import 'dart:convert';
 
 import 'package:test/test.dart';
-import 'package:webshell_core/webshell_core.dart';
+import 'package:starport_core/starport_core.dart';
 
 import 'support/fake_transport.dart';
 
@@ -136,7 +136,7 @@ void main() {
         headers: (DownloadTask task) async => <String, String>{
           'Cookie': 'sid=1',
           'Referer': 'https://example.com/page',
-          'User-Agent': 'WebShell/1.0',
+          'User-Agent': 'Starport/1.0',
         },
       );
       final DownloadTask task = m.enqueue(url: _url, siteId: 's');
@@ -144,7 +144,7 @@ void main() {
 
       expect(t.lastHeaders['Cookie'], 'sid=1');
       expect(t.lastHeaders['Referer'], 'https://example.com/page');
-      expect(t.lastHeaders['User-Agent'], 'WebShell/1.0');
+      expect(t.lastHeaders['User-Agent'], 'Starport/1.0');
       expect(task.status, DownloadStatus.done);
     });
 

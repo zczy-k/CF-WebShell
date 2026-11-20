@@ -693,7 +693,7 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.1.1"
-  webshell_core:
+  starport_core:
     dependency: "direct main"
     description:
       path: "../core"

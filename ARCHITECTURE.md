@@ -1,4 +1,4 @@
-# 网页坞（WebShell）—— 架构
+# 星港（Starport）—— 架构
 
 > 一句话：**把系统自带的浏览器引擎当成库装进 App 里，然后在它外面套一层原生外壳**
 > （多站点、下载器、上传、Cookie 持久化、品牌定制）。网站跑在引擎里，所以网站上能干的事它都能干；
@@ -57,7 +57,7 @@
 └──────────────────────────┬────────────────────────────────────┘
                            │ 只依赖下面的抽象接口
 ┌──────────────────────────▼────────────────────────────────────┐
-│ 壳逻辑层 webshell_core（纯 Dart，零 Flutter / 零第三方依赖）      │
+│ 壳逻辑层 starport_core（纯 Dart，零 Flutter / 零第三方依赖）      │
 │  站点档案 · 配置持久化 · URL 规整 · 请求头组装 · 下载队列/续传     │
 │  → 可 dart test，190个用例                                        │
 └──────────────────────────┬────────────────────────────────────┘
@@ -166,7 +166,7 @@ document-start 注入，只做四件事，且都对失败宽容（单页脚本�
 | | 默认目录 | 要不要权限 | "另存为" | 打开文件 |
 | --- | --- | --- | --- | --- |
 | **Android** | `Android/media/<包名>/Download`（应用私有目录，但**文件管理器可见**；`Android/data/…` 从 Android 11 起被系统屏蔽，用户翻不到） | **不需要**（不用 MANAGE_EXTERNAL_STORAGE，弹窗少一大截） | `flutter_file_dialog` 的系统 SAF 选择器，复制到用户选的目录 | `open_filex` 交给系统关联应用 |
-| **Windows** | `%USERPROFILE%\Downloads\<App 名>`（默认名 `网页坞` → `Downloads\wyw`，中文名取拼音首字母；可在设置里改成任意目录） | — | 选目标目录 + 复制（不把整文件读进内存） | `explorer.exe` 交给系统关联程序 |
+| **Windows** | `%USERPROFILE%\Downloads\<App 名>`（默认名 `星港` → `Downloads\wyw`，中文名取拼音首字母；可在设置里改成任意目录） | — | 选目标目录 + 复制（不把整文件读进内存） | `explorer.exe` 交给系统关联程序 |
 
 > 进度显示在 App 内的下载列表（列表项 + 角标数字），**没有系统通知栏进度**——那要额外处理
 > 通知权限与前台服务，属于 P3，README 的"已知边界"里写明了。
@@ -188,7 +188,7 @@ document-start 注入，只做四件事，且都对失败宽容（单页脚本�
 | --- | --- | --- |
 | **页面登录（默认）** | 99% 的站点 | 用户第一次在网页里正常登录，Cookie 存进 App 自己的 profile，之后保持登录。**不做任何自动填充**，避免触发风控 |
 | **Basic Auth（401）** | 服务端弹原生认证框 | 用户名/密码存 `<数据目录>/secrets.bin`，Windows 上该文件由 **DPAPI** 加密（见 §6.1）；收到 401 时自动应答（`HttpAuthResponse`）；Windows 端引擎没有这个回调，见 §7 |
-| **自定义请求头** | 没有登录页的 API 型站点 | 每站点可配 `Authorization: Bearer xxx` 等固定头：顶层导航由原生带，页面内部 `fetch`/XHR 由注入脚本补（`Cookie` 这类禁改头会被跳过）。**注意：这里的 token 是明文存在 `webshell.json` 里的**，见 §6.1 |
+| **自定义请求头** | 没有登录页的 API 型站点 | 每站点可配 `Authorization: Bearer xxx` 等固定头：顶层导航由原生带，页面内部 `fetch`/XHR 由注入脚本补（`Cookie` 这类禁改头会被跳过）。**注意：这里的 token 是明文存在 `starport.json` 里的**，见 §6.1 |
 
 配置文件里**只有"有没有密码"这个标记**（`hasBasicAuth`），密码本体永远不进 `json`，
 只进 `secrets.bin`。
@@ -203,7 +203,7 @@ document-start 注入，只做四件事，且都对失败宽容（单页脚本�
 | `secrets.bin`（Android / iOS） | Basic Auth 密码 | **混淆**：固定掩码异或。这不是加密，挡不住拿到文件的人。这些平台真正的防线是 **App 私有目录**（`/data/data/<包名>/`，别的 App 和文件管理器都进不去）+ 构建期把 `android:allowBackup` 关掉（`adb backup` 也拖不走） |
 | WebView profile（Windows） | Cookie / localStorage / IndexedDB / 缓存 | 引擎自己落盘，Chromium 用 DPAPI 保护 Cookie 值；但它**不防同一个 Windows 用户**——同账号下的程序能解 |
 | WebView profile（Android） | 同上 | 落在 App 私有目录，靠系统沙箱隔离；密钥在 Android Keystore |
-| `webshell.json` | 站点列表、设置、**自定义请求头** | **明文 JSON**（可读可改，这是刻意的：用户要能手工编辑 / 备份）。所以**不要把长期有效的高权限 token 填进请求头**，那会明文躺在磁盘上 |
+| `starport.json` | 站点列表、设置、**自定义请求头** | **明文 JSON**（可读可改，这是刻意的：用户要能手工编辑 / 备份）。所以**不要把长期有效的高权限 token 填进请求头**，那会明文躺在磁盘上 |
 | `downloads.json` / `icons/` | 下载记录、图标 | 明文，非机密 |
 
 老版本（`secrets.bin` 纯掩码、没有文件头）用户升级后**不需要重输密码**：读到老格式会
@@ -339,7 +339,7 @@ Android `minSdk` 用 Flutter 模板默认的 **24**，正好等于本套插件�
 ## 9. 目录结构
 
 ```
-CF-WebShell/
+CF-Starport/
   ARCHITECTURE.md              ← 本文件（设计取舍 / 能力矩阵 / 平台限制）
   README.md                    ← 入口：四条路（出包 / 同步 / 使用 / 架构）
   docs/

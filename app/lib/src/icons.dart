@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:webshell_core/webshell_core.dart';
+import 'package:starport_core/starport_core.dart';
 
 /// 站点图标：抓站点自己的 favicon 缓存到本地。
 ///
@@ -27,7 +27,7 @@ class IconFetcher {
     try {
       final HttpClientRequest req = await client.getUrl(Uri.parse(url));
       // 有些站点会看 UA 决定给不给图标
-      req.headers.set('User-Agent', site.userAgent ?? 'Mozilla/5.0 (compatible; WebShell)');
+      req.headers.set('User-Agent', site.userAgent ?? 'Mozilla/5.0 (compatible; Starport)');
       final HttpClientResponse resp = await req.close();
       if (resp.statusCode != 200) return null;
 

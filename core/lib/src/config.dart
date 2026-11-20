@@ -380,7 +380,7 @@ class ConfigFile {
 
   final File file;
 
-  static const String defaultFileName = 'webshell.json';
+  static const String defaultFileName = 'starport.json';
 
   /// 用户亲手删掉的预置站点地址（来自同步文档的抑制名单）。
   ///

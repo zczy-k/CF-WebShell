@@ -1,5 +1,5 @@
 import 'package:test/test.dart';
-import 'package:webshell_core/webshell_core.dart';
+import 'package:starport_core/starport_core.dart';
 
 SiteProfile _site({Map<String, String>? headers, String? ua, String? user}) => SiteProfile(
       id: 's1',

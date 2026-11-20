@@ -1,6 +1,6 @@
 import 'package:test/test.dart';
-import 'package:webshell_core/src/models.dart';
-import 'package:webshell_core/src/update.dart';
+import 'package:starport_core/src/models.dart';
+import 'package:starport_core/src/update.dart';
 
 void main() {
   group('isNewer 语义化版本比较', () {

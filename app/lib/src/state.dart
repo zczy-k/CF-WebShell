@@ -7,7 +7,7 @@ import 'package:flutter_file_dialog/flutter_file_dialog.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'local_secure_store.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:webshell_core/webshell_core.dart';
+import 'package:starport_core/starport_core.dart';
 
 import 'icons.dart';
 import 'paths.dart';
@@ -52,7 +52,7 @@ class ShellState extends ChangeNotifier {
   final LocalSecureStore secure;
   final File downloadsFile;
 
-  /// 同步缓存的落盘位置（`webshell.sync.json`）。为 null = 这个实例不参与同步
+  /// 同步缓存的落盘位置（`starport.sync.json`）。为 null = 这个实例不参与同步
   /// （单测构造走这条路，免得每条用例都要 mock 一次磁盘）。
   final SyncStateFile? syncFile;
 

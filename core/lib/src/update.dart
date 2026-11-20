@@ -45,7 +45,7 @@ class UpdateChecker {
           .getUrl(Uri.parse(url))
           .timeout(const Duration(seconds: 8));
       req.headers.set(HttpHeaders.userAgentHeader,
-          'WebShell-UpdateCheck/${branding.appVersion}');
+          'Starport-UpdateCheck/${branding.appVersion}');
       final HttpClientResponse res =
           await req.close().timeout(const Duration(seconds: 10));
       if (res.statusCode != 200) return null;

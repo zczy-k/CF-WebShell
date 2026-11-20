@@ -227,7 +227,18 @@ class _Dpapi {
 
   /// 本程序专属 entropy：同一台机器、同一个用户下，别的程序即使调 DPAPI 也解不开。
   static const List<int> _entropy = <int>[
-    0x77, 0x65, 0x62, 0x73, 0x68, 0x65, 0x6C, 0x6C, // "webshell"
+    0x73, 0x74, 0x61, 0x72, 0x70, 0x6F, 0x72, 0x74, // "starport"
+    0x2F, 0x73, 0x65, 0x63, 0x72, 0x65, 0x74, 0x73, // "/secrets"
+    0x2F, 0x76, 0x31, 0x00, // "/v1"
+  ];
+
+  /// 改名前那版用的 entropy。**只用来解旧密文**，新写入一律用上面那串。
+  ///
+  /// 为什么不直接删：DPAPI 的 entropy 等于第二把钥匙，换了以后老用户的
+  /// `secrets.bin` 就再也解不开 —— 站点密码、同步凭证全要重输。留一串字节
+  /// 在那儿做解密的兜底，代价是零。
+  static const List<int> _legacyEntropy = <int>[
+    0x77, 0x65, 0x62, 0x73, 0x68, 0x65, 0x6C, 0x6C, // 老名字，别删
     0x2F, 0x73, 0x65, 0x63, 0x72, 0x65, 0x74, 0x73, // "/secrets"
     0x2F, 0x76, 0x31, 0x00, // "/v1"
   ];
@@ -308,6 +319,12 @@ class _Dpapi {
   }
 
   static Uint8List? unprotect(Uint8List data) {
+    // 先按现在的 entropy 解；解不开（=改名前的旧密文）再拿老 entropy 试一次。
+    // DPAPI 解错 entropy 只是返回失败，不会弹框，所以这个兜底是安全的。
+    return _unprotectWith(data, _entropy) ?? _unprotectWith(data, _legacyEntropy);
+  }
+
+  static Uint8List? _unprotectWith(Uint8List data, List<int> entropy) {
     _ensure();
     final _UnprotectDart? fn = _unprotect;
     final _LocalFreeDart? free = _localFree;
@@ -317,15 +334,15 @@ class _Dpapi {
     final Pointer<_DataBlob> entBlob = calloc<_DataBlob>();
     final Pointer<_DataBlob> outBlob = calloc<_DataBlob>();
     final Pointer<Uint8> inBuf = calloc<Uint8>(data.length);
-    final Pointer<Uint8> entBuf = calloc<Uint8>(_entropy.length);
+    final Pointer<Uint8> entBuf = calloc<Uint8>(entropy.length);
     try {
       inBuf.asTypedList(data.length).setAll(0, data);
       inBlob.ref
         ..cbData = data.length
         ..pbData = inBuf;
-      entBuf.asTypedList(_entropy.length).setAll(0, _entropy);
+      entBuf.asTypedList(entropy.length).setAll(0, entropy);
       entBlob.ref
-        ..cbData = _entropy.length
+        ..cbData = entropy.length
         ..pbData = entBuf;
 
       final int ok = fn(

@@ -2,7 +2,7 @@
 
 这份教程是给**不想碰命令行**的人看的。全程在浏览器里点，大约 10 分钟，不用花钱，不用绑银行卡。
 
-做完你会拿到一个网址，形如 `https://cf-webshell-sync.你的名字.workers.dev`。
+做完你会拿到一个网址，形如 `https://cf-starport-sync.你的名字.workers.dev`。
 把这个网址填进软件的「设置 → 同步」里，多设备同步就能用了。
 
 ---
@@ -18,8 +18,8 @@
 
    打不开本地文件的话，用这两个网址（打开就是纯文本，Ctrl+A 全选、Ctrl+C 复制）：
 
-   - https://raw.githubusercontent.com/zczy-k/CF-WebShell/main/worker-sync/schema-plain.sql
-   - https://raw.githubusercontent.com/zczy-k/CF-WebShell/main/worker-sync/src/index.js
+   - https://raw.githubusercontent.com/zczy-k/CF-Starport/main/worker-sync/schema-plain.sql
+   - https://raw.githubusercontent.com/zczy-k/CF-Starport/main/worker-sync/src/index.js
 
 ---
 
@@ -33,10 +33,10 @@ Storage & Databases  →  D1 SQL Database  →  Create database
 
 > 菜单英文界面。找不到就用顶部搜索框搜 **D1**。
 
-- **Database name** 填：`cf-webshell-sync`
+- **Database name** 填：`cf-starport-sync`
 - 点 **Create**
 
-✅ **做完你会看到**：多了一个叫 `cf-webshell-sync` 的库，点进去有个 **Console** 标签。
+✅ **做完你会看到**：多了一个叫 `cf-starport-sync` 的库，点进去有个 **Console** 标签。
 
 ---
 
@@ -58,8 +58,8 @@ Storage & Databases  →  D1 SQL Database  →  Create database
 
 两份效果完全一样，用哪份都行。
 
-- `worker-sync/schema-plain.sql` ← https://raw.githubusercontent.com/zczy-k/CF-WebShell/main/worker-sync/schema-plain.sql
-- `worker-sync/schema.sql` ← https://raw.githubusercontent.com/zczy-k/CF-WebShell/main/worker-sync/schema.sql
+- `worker-sync/schema-plain.sql` ← https://raw.githubusercontent.com/zczy-k/CF-Starport/main/worker-sync/schema-plain.sql
+- `worker-sync/schema.sql` ← https://raw.githubusercontent.com/zczy-k/CF-Starport/main/worker-sync/schema.sql
 
 ✅ **做完你会看到**：下面出来一片执行结果，没有红色报错。
 
@@ -96,7 +96,7 @@ space_history   rate
 Workers & Pages  →  Create  →  Workers  →  Create Worker
 ```
 
-- 名字填：`cf-webshell-sync`（**必须一模一样**，后面地址就是它）
+- 名字填：`cf-starport-sync`（**必须一模一样**，后面地址就是它）
 - 点 **Deploy**（它先给你部署一个默认的 Hello World，别管）
 
 ✅ **做完你会看到**：一个写着 "Hello World" 的页面。
@@ -122,7 +122,7 @@ Workers & Pages  →  Create  →  Workers  →  Create Worker
 回到这个 Worker 的页面 → **Settings**（设置）→ 找 **Bindings**（绑定）→ **Add** → 选 **D1 database**
 
 - **Variable name**（变量名）填：`DB` ← **只能是大写 DB，填别的程序找不到库**
-- **D1 database** 选第 1 步建的那个 `cf-webshell-sync`
+- **D1 database** 选第 1 步建的那个 `cf-starport-sync`
 - 保存（Save / Deploy）
 
 ✅ **做完你会看到**：Bindings 列表里有一行，名字是 `DB`。
@@ -154,7 +154,7 @@ Workers & Pages  →  Create  →  Workers  →  Create Worker
 回到 Worker 的首页（Overview），页面上会有一个网址，长这样：
 
 ```
-https://cf-webshell-sync.你的账号名.workers.dev
+https://cf-starport-sync.你的账号名.workers.dev
 ```
 
 **复制下来**。这就是软件要填的「服务地址」。
@@ -170,7 +170,7 @@ https://cf-webshell-sync.你的账号名.workers.dev
 https://你的地址/v1/health
 ```
 
-✅ **应该看到**：`{"ok":true,"service":"cf-webshell-sync","schema":1}`
+✅ **应该看到**：`{"ok":true,"service":"cf-starport-sync","schema":1}`
 
 看到这行就说明服务活了。看到别的（尤其 404 或 500）先别往下走，看最后一节「出问题怎么办」。
 
@@ -284,10 +284,10 @@ https://你的地址/v1/health
 cd worker-sync
 
 npx wrangler login
-npx wrangler d1 create cf-webshell-sync
+npx wrangler d1 create cf-starport-sync
 # 把输出里的 database_id 填进 wrangler.toml
 
-npx wrangler d1 execute cf-webshell-sync --remote --file=schema.sql
+npx wrangler d1 execute cf-starport-sync --remote --file=schema.sql
 npx wrangler secret put BOOTSTRAP_SECRET
 npx wrangler deploy
 ```

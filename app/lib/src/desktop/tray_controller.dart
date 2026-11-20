@@ -5,7 +5,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/services.dart' show ByteData, rootBundle;
 import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
-import 'package:webshell_core/webshell_core.dart';
+import 'package:starport_core/starport_core.dart';
 
 import '../paths.dart';
 import 'webview_window_guard.dart';
@@ -97,7 +97,7 @@ class TrayController with TrayListener, WindowListener {
     try {
       final ByteData data = await rootBundle.load('assets/tray_icon.ico');
       final Directory dir = await appDataDir();
-      final File icon = File(joinPath(dir.path, 'webshell_tray.ico'));
+      final File icon = File(joinPath(dir.path, 'starport_tray.ico'));
       await icon.writeAsBytes(
         data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
         flush: true,

@@ -25,9 +25,9 @@ set -euo pipefail
 say() { printf '%s\n' "---- $*"; }
 
 OUT_DIR="${1:-branding-out}"
-# 中文名给用户看，英文代号 WebShell 只留在仓库名和 Dart 包名里（界面上不出现）。
-APP_NAME="${APP_NAME:-网页坞}"
-APP_ID="${APP_ID:-dev.webshell.webshell}"
+# 中文名给用户看，英文代号 Starport 只留在仓库名和 Dart 包名里（界面上不出现）。
+APP_NAME="${APP_NAME:-星港}"
+APP_ID="${APP_ID:-dev.starport.starport}"
 PRESET_URL="${PRESET_URL:-}"
 PRESET_NAME="${PRESET_NAME:-}"
 PRESET_SITES="${PRESET_SITES:-}"
@@ -42,7 +42,7 @@ UPDATE_URL="${UPDATE_URL:-}"
 
 # 抓站点图标时用的 UA。写清楚自己是谁（而不是冒充 Chrome），同时带 compatible 前缀，
 # 让那些只拒绝"空 UA/爬虫 UA"的 CDN 放行；实测 flutter.dev / php.net / wikipedia 都能过。
-UA="Mozilla/5.0 (compatible; WebShellBranding/1.0; +https://github.com/zczy-k/CF-WebShell)"
+UA="Mozilla/5.0 (compatible; StarportBranding/1.0; +https://github.com/zczy-k/CF-Starport)"
 
 if command -v magick >/dev/null 2>&1; then IM="magick"; elif command -v convert >/dev/null 2>&1; then IM="convert"; else
   # 实测：ubuntu-22.04 的镜像自带 ImageMagick，**ubuntu-24.04 起就没有了**，
@@ -81,11 +81,11 @@ esac
 ORG_PART="${APP_ID%.*}"
 NAME_PART="${APP_ID##*.}"
 if [ "$ORG_PART" = "$APP_ID" ] || [ -z "$NAME_PART" ] || [ -z "$ORG_PART" ]; then
-  ORG_PART="dev.webshell"
-  NAME_PART="webshell"
+  ORG_PART="dev.starport"
+  NAME_PART="starport"
 fi
 NAME_PART="$(printf '%s' "$NAME_PART" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9_]+/_/g; s/^([0-9])/_\1/')"
-[ -n "$NAME_PART" ] || NAME_PART="webshell"
+[ -n "$NAME_PART" ] || NAME_PART="starport"
 case "$NAME_PART" in
   abstract|as|assert|async|await|break|case|catch|class|const|continue|default|deferred|do|dynamic|else|enum|export|extends|extension|external|factory|false|final|finally|for|function|get|hide|if|implements|import|in|interface|is|library|mixin|new|null|on|operator|part|required|rethrow|return|set|show|static|super|switch|sync|this|throw|true|try|typedef|var|void|while|with|yield)
     NAME_PART="app_${NAME_PART}" ;;

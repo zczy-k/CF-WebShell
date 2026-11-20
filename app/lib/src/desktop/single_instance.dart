@@ -235,8 +235,8 @@ class SingleInstanceGuard {
       // 两把键都要占住才算首实例；任何一把被别人持有 → 第二实例。
       // 顺序固定（id 键在前），不会出现两个进程各持一把互相看不见。
       final List<String> keys = <String>[
-        if (id.isNotEmpty) 'Local\\WebShell.SingleInstance.id.$id',
-        'Local\\WebShell.SingleInstance.$windowTitle',
+        if (id.isNotEmpty) 'Local\\Starport.SingleInstance.id.$id',
+        'Local\\Starport.SingleInstance.$windowTitle',
       ];
       for (final String key in keys) {
         if (!_tryOwnMutex(key)) {

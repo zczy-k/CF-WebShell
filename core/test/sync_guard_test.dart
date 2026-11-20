@@ -14,7 +14,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:test/test.dart';
-import 'package:webshell_core/webshell_core.dart';
+import 'package:starport_core/starport_core.dart';
 
 const String kSpace = 'sp_guard';
 
@@ -284,7 +284,7 @@ void main() {
   group('缓存双份', () {
     test('主文件被截断 → 退回 .bak 那一版，合并基准不丢', () {
       final SyncStateFile f =
-          SyncStateFile(File('${dir.path}/webshell.sync.json'));
+          SyncStateFile(File('${dir.path}/starport.sync.json'));
 
       final SyncLocalState first = SyncLocalState(version: 7);
       first.base.sites['https://a.example.com'] = SyncSite(

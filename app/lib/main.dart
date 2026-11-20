@@ -8,7 +8,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
-import 'package:webshell_core/webshell_core.dart';
+import 'package:starport_core/starport_core.dart';
 
 import 'src/app.dart';
 import 'src/desktop/single_instance.dart';
@@ -82,7 +82,7 @@ Future<void> main() async {
     sync.start();
   }
 
-  runApp(WebShellApp(state: state));
+  runApp(StarportApp(state: state));
 }
 
 /// 白标配置来自 `assets/preset.json`（CI 按 workflow 输入重写它再打包）。

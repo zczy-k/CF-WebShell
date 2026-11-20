@@ -144,7 +144,7 @@ class SyncLocalState {
   }
 }
 
-/// 同步状态的落盘位置：和 `webshell.json` 放一起，叫 `webshell.sync.json`。
+/// 同步状态的落盘位置：和 `starport.json` 放一起，叫 `starport.sync.json`。
 ///
 /// 为什么单独一个文件而不是塞进主配置：这份东西是缓存，坏了可以直接删掉重来
 /// （最多丢一次合并上下文，站点列表不会丢）—— 但要是塞进主配置，一份坏缓存就能
@@ -154,7 +154,7 @@ class SyncStateFile {
 
   final File file;
 
-  static const String defaultFileName = 'webshell.sync.json';
+  static const String defaultFileName = 'starport.sync.json';
 
   void save(SyncLocalState state) {
     try {

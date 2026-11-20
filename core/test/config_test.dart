@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:test/test.dart';
-import 'package:webshell_core/webshell_core.dart';
+import 'package:starport_core/starport_core.dart';
 
 SiteProfile _site(String id, String url, {String? name}) =>
     SiteProfile(id: id, name: name ?? id, startUrl: url);
@@ -32,7 +32,7 @@ void main() {
 
     test('坏数据回落到默认值而不是抛异常', () {
       final Branding b = Branding.fromJson('这不是个对象');
-      expect(b.appName, '网页坞');
+      expect(b.appName, '星港');
       expect(b.isWhiteLabel, isFalse);
     });
 
@@ -477,8 +477,8 @@ void main() {
     late ConfigFile file;
 
     setUp(() {
-      dir = Directory.systemTemp.createTempSync('webshell_cfg');
-      file = ConfigFile(File('${dir.path}${Platform.pathSeparator}webshell.json'));
+      dir = Directory.systemTemp.createTempSync('starport_cfg');
+      file = ConfigFile(File('${dir.path}${Platform.pathSeparator}starport.json'));
     });
 
     tearDown(() {

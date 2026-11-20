@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:webshell/src/engine/scripts.dart';
-import 'package:webshell_core/webshell_core.dart';
+import 'package:starport/src/engine/scripts.dart';
+import 'package:starport_core/starport_core.dart';
 
 /// 注入脚本是"下载能不能落到本机"的关键一环（Windows 上尤其：WebView2 的
 /// 下载事件根本没接到原生，只能靠这段脚本把下载意图报上来）。

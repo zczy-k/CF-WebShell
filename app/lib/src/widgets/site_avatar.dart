@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:webshell_core/webshell_core.dart';
+import 'package:starport_core/starport_core.dart';
 
 /// 站点图标：本地缓存的 favicon → 抓不到就退化成带颜色的首字母方块。
 class SiteAvatar extends StatelessWidget {

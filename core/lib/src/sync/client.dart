@@ -37,7 +37,7 @@ class SyncException implements Exception {
 /// 一台设备的同步凭证。
 ///
 /// [deviceToken] 是秘密：泄露等于别人能读写你的站点清单。所以它只存在
-/// 系统安全存储里，不进 `webshell.json`。
+/// 系统安全存储里，不进 `starport.json`。
 class SyncCredentials {
   const SyncCredentials({
     required this.endpoint,
@@ -519,7 +519,7 @@ class SyncClient {
 
   static String? _ua() {
     // 只用 dart:io，拿不到应用版本；固定一个能看出是谁的 UA 就好。
-    return 'CF-WebShell-Sync/1';
+    return 'CF-Starport-Sync/1';
   }
 }
 

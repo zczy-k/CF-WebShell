@@ -20,24 +20,24 @@
 cd worker-sync
 
 # 1) 建数据库，把输出里的 database_id 填进 wrangler.toml
-npx wrangler d1 create cf-webshell-sync
+npx wrangler d1 create cf-starport-sync
 
 # 2) 建表（--remote 才是真的建在线上库，别漏了）
-npx wrangler d1 execute cf-webshell-sync --remote --file=schema.sql
+npx wrangler d1 execute cf-starport-sync --remote --file=schema.sql
 #    已部署过旧版要重跑一次：全是 IF NOT EXISTS，跑第二遍不动已有数据。
 
 # 3) 设"部署密钥" —— 自己编一串 32 位以上的随机字符，它就是门锁
 npx wrangler secret put BOOTSTRAP_SECRET
 
-# 4) 部署，记下输出的 https://cf-webshell-sync.<你的>.workers.dev
+# 4) 部署，记下输出的 https://cf-starport-sync.<你的>.workers.dev
 npx wrangler deploy
 ```
 
 验证：
 
 ```bash
-curl https://cf-webshell-sync.xxx.workers.dev/v1/health
-# {"ok":true,"service":"cf-webshell-sync","schema":1}
+curl https://cf-starport-sync.xxx.workers.dev/v1/health
+# {"ok":true,"service":"cf-starport-sync","schema":1}
 ```
 
 ## App 里连上

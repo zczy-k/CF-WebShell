@@ -14,7 +14,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:test/test.dart';
-import 'package:webshell_core/webshell_core.dart';
+import 'package:starport_core/starport_core.dart';
 
 /// 一个已经配好同步的配置（`syncConfigured` 为真才会真干活）。
 ShellConfig configuredConfig() => ShellConfig(
@@ -27,7 +27,7 @@ ShellConfig configuredConfig() => ShellConfig(
 /// 但 `SyncService` 的构造签名要它。
 SyncEngine engineFor(ShellConfig config, Directory dir) => SyncEngine(
       config: config,
-      stateFile: SyncStateFile(File('${dir.path}/webshell.sync.json')),
+      stateFile: SyncStateFile(File('${dir.path}/starport.sync.json')),
       credentials: MemorySyncCredentialStore(),
       state: SyncLocalState(),
     );

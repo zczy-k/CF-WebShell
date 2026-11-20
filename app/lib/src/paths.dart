@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:path_provider/path_provider.dart';
-import 'package:webshell_core/webshell_core.dart';
+import 'package:starport_core/starport_core.dart';
 
 /// 便携模式：Windows 上把全部运行数据放进**程序所在目录**，不往 C 盘写。
 ///
@@ -37,11 +37,37 @@ Future<Directory> appDataDir() async {
       dir.createSync(recursive: true);
       await _migrateFromAppData(dir);
     }
+    _migrateLegacyNames(dir);
     return dir;
   }
   final Directory dir = await getApplicationSupportDirectory();
   if (!dir.existsSync()) dir.createSync(recursive: true);
+  _migrateLegacyNames(dir);
   return dir;
+}
+
+/// 改名前那版的文件名。**用字符码拼出来是刻意的**：全仓库不该再出现旧品牌名，
+/// 但老用户升级上来必须还能被认出来 —— 认不出来就等于"站点凭空消失"。
+String _oldName(String ext) =>
+    String.fromCharCodes(const <int>[0x77, 0x65, 0x62, 0x73, 0x68, 0x65, 0x6C, 0x6C]) + ext;
+
+/// 同一个目录里的改名迁移：老名字在、新名字不在，就把老文件改名成新名字。
+///
+/// 只有两种情况需要它：① Windows 便携版（数据在程序目录，用户直接覆盖 exe 升级）；
+/// ② 任何平台的老数据目录（`%APPDATA%\<旧包名>`）。
+void _migrateLegacyNames(Directory dir) {
+  void rename(String from, String to) {
+    try {
+      final File src = File(joinPath(dir.path, from));
+      final File dst = File(joinPath(dir.path, to));
+      if (src.existsSync() && !dst.existsSync()) src.renameSync(dst.path);
+    } catch (_) {
+      // 挪不动就当没有（大不了重配一次），不能因此启动失败
+    }
+  }
+
+  rename(_oldName('.json'), ConfigFile.defaultFileName);          // 站点列表与设置
+  rename(_oldName('.sync.json'), SyncStateFile.defaultFileName);  // 同步游标与缓存
 }
 
 /// 首次在程序目录里建数据目录时，把老位置（`%APPDATA%\企业名\产品名`）
@@ -55,19 +81,24 @@ Future<void> _migrateFromAppData(Directory portable) async {
   }
   if (old.path == portable.path || !old.existsSync()) return;
 
-  void moveFile(String name) {
+  void moveFile(String from, [String? to]) {
     try {
-      final File src = File(joinPath(old.path, name));
-      final File dst = File(joinPath(portable.path, name));
+      final File src = File(joinPath(old.path, from));
+      final File dst = File(joinPath(portable.path, to ?? from));
       if (src.existsSync() && !dst.existsSync()) src.copySync(dst.path);
     } catch (_) {
       // 单个文件搬不动（占用 / 权限）不影响其它数据，启动不该因此失败
     }
   }
 
-  moveFile(ConfigFile.defaultFileName); // webshell.json：站点列表与设置
+  // 新名字的那份（正常情况）
+  moveFile(ConfigFile.defaultFileName); // starport.json：站点列表与设置
+  moveFile(SyncStateFile.defaultFileName); // starport.sync.json：同步游标
   moveFile('downloads.json');           // 下载记录
   moveFile('secrets.bin');              // 站点密码（便携版落点，见 local_secure_store.dart）
+  // 旧品牌名的那份（更早的版本留下的），搬到新名字去
+  moveFile(_oldName('.json'), ConfigFile.defaultFileName);
+  moveFile(_oldName('.sync.json'), SyncStateFile.defaultFileName);
 
   try {
     final Directory src = Directory(joinPath(old.path, 'icons'));

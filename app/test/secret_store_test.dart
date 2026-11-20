@@ -3,7 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:webshell/src/local_secure_store.dart';
+import 'package:starport/src/local_secure_store.dart';
 
 /// 机密存储的落盘格式与迁移。
 ///
@@ -15,7 +15,7 @@ void main() {
   late LocalSecureStore store;
 
   setUp(() {
-    tmp = Directory.systemTemp.createTempSync('webshell_secret_test');
+    tmp = Directory.systemTemp.createTempSync('starport_secret_test');
     file = File('${tmp.path}${Platform.pathSeparator}secrets.bin');
     store = LocalSecureStore(file);
   });

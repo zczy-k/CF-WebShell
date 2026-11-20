@@ -139,7 +139,7 @@ class DownloadService : Service() {
     }
 
     companion object {
-        const val CHANNEL_ID = "webshell_downloads"
+        const val CHANNEL_ID = "starport_downloads"
         const val NOTIFICATION_ID = 1001
         const val PROGRESS_NONE: Int = -2            // 终态：不带进度条
         const val PROGRESS_INDETERMINATE: Int = -1   // 未知大小：转圈
@@ -220,10 +220,10 @@ import io.flutter.plugin.common.MethodChannel
 
 /**
  * Dart ↔ 原生的下载通知桥（构建期注入）。
- * Dart 侧：MethodChannel("webshell/download_notify")，方法 progress / done / permission。
+ * Dart 侧：MethodChannel("starport/download_notify")，方法 progress / done / permission。
  */
 object DownloadNotify {
-    const val CHANNEL = "webshell/download_notify"
+    const val CHANNEL = "starport/download_notify"
 
     fun bind(context: Context, engine: FlutterEngine) {
         MethodChannel(engine.dartExecutor.binaryMessenger, CHANNEL)

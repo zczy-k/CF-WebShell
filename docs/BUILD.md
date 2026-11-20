@@ -13,8 +13,8 @@
 改 `app/`、`core/`、`tools/` 下的代码并 push 到 `main`（或对这几个目录发 PR），`build` 流水线自动跑，
 产物在 Actions 那次运行的 **Artifacts** 里：
 
-- `webshell-android-apk` → `webshell-<包名>-v<版本名>-<构建号>.apk`
-- `webshell-windows-x64` → `webshell-windows-<包名>-v<版本名>.zip`
+- `starport-android-apk` → `starport-<包名>-v<版本名>-<构建号>.apk`
+- `starport-windows-x64` → `starport-windows-<包名>-v<版本名>.zip`
 
 > GitHub 的 Actions 日志和产物**必须登录**才能看/下。
 
@@ -24,8 +24,8 @@
 
 | 输入 | 留空时 | 说明 |
 | --- | --- | --- |
-| `app_name` | `网页坞` | App 显示名。安卓桌面图标名、Windows 窗口标题、**Windows 的 exe 文件名**都用它。**可以中文** |
-| `app_id` | `dev.webshell.webshell` | 包名/应用 ID，如 `com.corp.oa`。最后一段会规整成合法标识符（小写、字母数字下划线、不以数字开头）。只影响包名与内部标识，**不影响 exe 文件名** |
+| `app_name` | `星港` | App 显示名。安卓桌面图标名、Windows 窗口标题、**Windows 的 exe 文件名**都用它。**可以中文** |
+| `app_id` | `dev.starport.starport` | 包名/应用 ID，如 `com.corp.oa`。最后一段会规整成合法标识符（小写、字母数字下划线、不以数字开头）。只影响包名与内部标识，**不影响 exe 文件名** |
 | `app_version` | 跟随 `app/pubspec.yaml`（现 `0.2.0+2`） | 版本号。怎么填见下面「版本号怎么定」 |
 | `preset_url` | 无预置站点（= 通用版） | 打开就直达的网址，如 `oa.corp.com`、`http://192.168.1.10:8080`。只写域名会自动补 `https://` |
 | `preset_name` | 用域名 | 预置站点在列表里显示的名字 |
@@ -124,7 +124,7 @@ cd app && flutter test
 注意几点：
 
 - **`app/android/` 和 `app/windows/` 不在仓库里**，需要在本地生成一次：
-  在 `app` 下跑 `flutter create --platforms=android,windows --org dev.webshell --project-name webshell .`
+  在 `app` 下跑 `flutter create --platforms=android,windows --org dev.starport --project-name starport .`
   （CI 也是这么做的；仓库只保留 `lib/` 作为唯一真相源）。
 - **静态分析的 flag 不一样**：`dart analyze` 从 Dart 3.13 起**不能**传 `--no-fatal-infos`（传了直接退出 64），
   而 `flutter analyze` 默认把 info 也算致命，必须传 `--no-fatal-infos --no-fatal-warnings`。
@@ -172,7 +172,7 @@ Windows 上跑还需要 **WebView2 运行时**（Win10/11 通常随 Edge 自带�
 | Windows 步骤报 "Python was not found" / 只退 1 不给原因 | 机器上的 `python` 可能只是微软商店的"应用执行别名"占位符 | 流水线不是查 PATH 而是**实跑一遍**探测 `python` / `py -3` / `python3`，挑真能用的那个 |
 | CI 里 `dart analyze --no-fatal-infos` 报 "Cannot negate option" | Dart 3.13 起该选项已移除 | 别传它（本仓库的流水线已修正） |
 | 静态分析报 `const_with_non_const` / 类型错误，本机却看不出来 | 本机没装 Flutter SDK，只跑 `dart format --output=none` 只能验语法，验不出语义 | 以 CI 的 `flutter analyze` 为准；改完 App 层就直接 push 让它验 |
-| 看不到 CI 日志 / 下不了产物 | 未登录时拿不到 Actions 原始日志 | **失败原因无需登录**：流水线把各步骤日志尾部打成 check-run 注解，`GET /repos/zczy-k/CF-WebShell/commits/<sha>/check-runs` → `.../check-runs/<id>/annotations` 即可读；产物要登录才能下 |
+| 看不到 CI 日志 / 下不了产物 | 未登录时拿不到 Actions 原始日志 | **失败原因无需登录**：流水线把各步骤日志尾部打成 check-run 注解，`GET /repos/zczy-k/CF-Starport/commits/<sha>/check-runs` → `.../check-runs/<id>/annotations` 即可读；产物要登录才能下 |
 
 ---
 

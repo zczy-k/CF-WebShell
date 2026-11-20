@@ -550,7 +550,7 @@ class WebViewWindowGuard {
     return out;
   }
 
-  /// 本进程（webshell.exe）所有**后代**进程里，映像名为
+  /// 本进程（starport.exe）所有**后代**进程里，映像名为
   /// `msedgewebview2.exe` 的 PID 集合。经 Toolhelp 快照建父子表再 BFS，
   /// 保证绝不误伤别的 WebView2 宿主。
   Set<int> _webviewProcessPids() {

@@ -10,8 +10,8 @@ import 'pages/home_page.dart';
 /// 的页面 context。
 final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
 
-class WebShellApp extends StatelessWidget {
-  const WebShellApp({super.key, required this.state});
+class StarportApp extends StatelessWidget {
+  const StarportApp({super.key, required this.state});
 
   final ShellState state;
 

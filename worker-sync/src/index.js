@@ -1,5 +1,5 @@
 /**
- * CF-WebShell 自动同步服务 —— Cloudflare Worker + D1。
+ * CF-Starport 自动同步服务 —— Cloudflare Worker + D1。
  *
  * 它只做一件事：在一组"配对过的设备"之间传一份 JSON 文档。
  * 合并逻辑全在客户端（core/lib/src/sync/doc.dart），服务端**故意不懂业务**：
@@ -201,7 +201,7 @@ export default {
     try {
       // 探活 —— 客户端"测试连接"按钮用它，不需要凭证
       if (path === '/v1/health' && request.method === 'GET') {
-        return json({ ok: true, service: 'cf-webshell-sync', schema: 1 });
+        return json({ ok: true, service: 'cf-starport-sync', schema: 1 });
       }
 
       if (path === '/v1/bootstrap' && request.method === 'POST') {
