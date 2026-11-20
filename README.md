@@ -44,7 +44,7 @@
 不经过任何第三方服务器，免费额度十台设备一年都跑不满。
 
 - 不想碰命令行 → [**DEPLOY.md**](worker-sync/DEPLOY.md)（推荐，纯网页点点点）
-- 习惯终端 → [worker-sync/README.md](worker-sync/README.md)（wrangler 四条命令）
+- 习惯终端 → [worker-sync/README.md](worker-sync/README.md)（wrangler 三条命令，域名已配好）
 - 想改协议/看接口 → [worker-sync/INTERNALS.md](worker-sync/INTERNALS.md)
 
 > ⚠️ **国内用户必看**：`*.workers.dev` 在国内基本不可用（转圈、超时、连接被重置）。

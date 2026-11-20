@@ -16,12 +16,12 @@ routes = [
 
 # D1 绑定。同步文档整份存一列 JSON，见 schema.sql 里的说明。
 #
-# 部署顺序（第一次）：
+# 本仓库已部署好，直接 `npx wrangler deploy` 即可，下面 uuid 不用动。
+# fork 出去自己部署才需要换库：
 #   npx wrangler d1 create starport-sync
-#   → 把输出里的 database_id 填到下面
+#   → 把输出里的 database_id 填到下面（下面的值只对应本仓库那个库）
 #   npx wrangler d1 execute starport-sync --remote --file=schema.sql
-#   npx wrangler secret put BOOTSTRAP_SECRET   # 自己编一串 32 位以上的随机字符
-#   npx wrangler deploy
+#   npx wrangler secret put BOOTSTRAP_SECRET   # 至少 40 位随机字符
 [[d1_databases]]
 binding = "DB"
 database_name = "starport-sync"

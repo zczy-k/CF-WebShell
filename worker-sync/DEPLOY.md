@@ -100,7 +100,7 @@ space_history   rate
 Workers & Pages  →  Create  →  Workers  →  Create Worker
 ```
 
-- 名字填：`starport-sync`（**必须一模一样**，后面地址就是它）
+- 名字填：`starport-sync`（随便起也行；**地址跟这个名字无关**，是第 7 步挂的自定义域）
 - 点 **Deploy**（它先给你部署一个默认的 Hello World，别管）
 
 ✅ **做完你会看到**：一个写着 "Hello World" 的页面。
@@ -282,7 +282,8 @@ npx wrangler login
 npx wrangler d1 execute starport-sync --remote --file=schema.sql
 npx wrangler secret put BOOTSTRAP_SECRET
 npx wrangler deploy
-# 输出最后一行应该是：starport.zczy6.dpdns.org (custom domain)
+# 输出末行会列出你 routes 里写的域名 (custom domain)，
+# 比如本仓库的：starport.zczy6.dpdns.org (custom domain)
 ```
 
 ⚠️ `--remote` 不能漏：漏了就建在本地，线上还是空的。
