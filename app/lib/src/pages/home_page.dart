@@ -76,6 +76,11 @@ class HomePage extends StatelessWidget {
     final SiteProfile? site = await showAddSiteSheet(context, state);
     if (site == null || !context.mounted) return;
     // 站点在表单里就已经写进配置了（见 showAddSiteSheet 的说明），这里只负责打开它。
+    //
+    // 进站前先把本页的焦点收掉。表单里刚填过网址/名字，那两个 TextField 很可能还攥着
+    // 焦点；Flutter 要到网页里**第一次 pointer down** 时才做"清焦点"，那一下就被吃掉，
+    // 用户看到的是"输入框第一次点没反应，要点第二次"。
+    FocusScope.of(context).unfocus();
     await Navigator.of(context).push<void>(BrowserPage.route(state, site.id));
   }
 }
@@ -240,6 +245,8 @@ class _SiteCard extends StatelessWidget {
         child: InkWell(
           onTap: () {
             state.openSite(site);
+            // 同上：先把首页的焦点收掉，别让网页里第一次点击花在"清焦点"上。
+            FocusScope.of(context).unfocus();
             Navigator.of(context).push<void>(BrowserPage.route(state, site.id));
           },
           onLongPress: () => _siteMenu(context),
@@ -338,6 +345,7 @@ class _SiteCard extends StatelessWidget {
                 onTap: () {
                   Navigator.of(sheetContext).pop();
                   state.openSite(site);
+                  FocusScope.of(context).unfocus();
                   Navigator.of(context).push<void>(BrowserPage.route(state, site.id));
                 },
               ),
