@@ -233,6 +233,12 @@ export default {
       if (path === '/v1/devices/revoke' && request.method === 'POST') {
         return await handleRevoke(request, env, device);
       }
+      if (path === '/v1/history' && request.method === 'GET') {
+        return await handleHistory(env, device);
+      }
+      if (path === '/v1/history/restore' && request.method === 'POST') {
+        return await handleRestore(request, env, device, now);
+      }
 
       return fail('not_found', 404);
     } catch (err) {
@@ -261,6 +267,12 @@ async function handleBootstrap(request, env, now) {
     return fail('bad_bootstrap', 403);
   }
 
+  // 成功路径也要限流。密钥万一外泄，别人能无限开新空间 —— 数据他读不到
+  // （空间归属从 token 反查），但每次开空间都是 2 行写入，能把 D1 额度刷干。
+  // 正常用户一辈子只走一次这个接口，5 次/小时已经很宽松了。
+  const openOk = await rateTake(env, `bootok:${clientIp(request)}`, 5, 3600 * 1000, now);
+  if (!openOk) return fail('rate_limited', 429);
+
   const body = await readJson(request);
   const deviceName = String((body && body.deviceName) || '').slice(0, 64) || '第一台设备';
 
@@ -288,6 +300,12 @@ async function handlePairCode(request, env, device, now) {
 
   // 顺手清掉过期很久的配对码，免得表越攒越大（D1 免费 5 GB，但没必要浪费）
   await env.DB.prepare('DELETE FROM pair_codes WHERE expires_at < ?')
+    .bind(now - 24 * 3600 * 1000)
+    .run();
+
+  // 限流窗口的行是只增不减的：退役的设备、换过的 IP 会永久占一行。
+  // 跑两年能攒到几千行，虽然不影响正确性，但没必要留着。顺手清一天前的。
+  await env.DB.prepare('DELETE FROM rate WHERE window_start < ?')
     .bind(now - 24 * 3600 * 1000)
     .run();
 
@@ -360,13 +378,47 @@ async function handleHead(env, device) {
 async function handleGetDoc(env, device) {
   const space = await loadSpace(env, device.space_id);
   if (!space) return fail('not_found', 404);
-  let doc = {};
-  try {
-    doc = JSON.parse(space.doc || '{}');
-  } catch (e) {
-    doc = {};
+  const doc = parseDoc(space.doc);
+  if (doc === null) {
+    // 文档坏了必须让客户端停手，绝不能返回一份"什么站点都没有"。
+    // 空文档在客户端眼里等于"所有站点都被删了"，接着就是全量墓碑推上来 ——
+    // 一份坏数据能连带清空所有设备。500 会被客户端翻成"连不上"，原地等下一轮。
+    return fail('corrupt_doc', 500);
   }
   return json({ v: space.version, updatedAt: space.updated_at, doc });
+}
+
+/** 解析服务端存的 JSON。坏了返回 null（调用方必须当成错误处理，不能当成空文档）。 */
+function parseDoc(text) {
+  try {
+    const v = JSON.parse(text || '{}');
+    return v && typeof v === 'object' ? v : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+/**
+ * 每台设备每小时最多推几次 —— 写历史版本和限流窗口都要跟着它走，
+ * 保证"一次成功推送的副作用"是可控的一小撮行。
+ */
+function keepHistory(env, spaceId, version, docText, now) {
+  return env.DB.prepare(
+    'INSERT OR REPLACE INTO space_history (space_id, version, doc, created_at) VALUES (?, ?, ?, ?)'
+  ).bind(spaceId, version, docText, now);
+}
+
+async function trimHistory(env, spaceId, now, keep, ttlMs) {
+  // 只留最近 keep 版，再顺手清掉过期的。两条 DELETE 比在列表页里做过滤便宜。
+  await env.DB.prepare(
+    'DELETE FROM space_history WHERE space_id = ? AND version NOT IN ' +
+      '(SELECT version FROM space_history WHERE space_id = ? ORDER BY version DESC LIMIT ?)'
+  )
+    .bind(spaceId, spaceId, keep)
+    .run();
+  await env.DB.prepare('DELETE FROM space_history WHERE space_id = ? AND created_at < ?')
+    .bind(spaceId, now - ttlMs)
+    .run();
 }
 
 async function handlePutDoc(request, env, device, now) {
@@ -397,8 +449,8 @@ async function handlePutDoc(request, env, device, now) {
     return fail('too_large', 413);
   }
 
-  // 空间 id 由客户端带上来，但**必须**和 token 反查出来的一致；
-  // 不一致就当成一次陈旧的写入，直接按冲突处理，不给任何越权的机会。
+  // 空间 id 一律从 token 反查，客户端传什么都不看 —— 这样"越权写别人的空间"
+  // 这条路连入口都不存在（连猜都不用防）。
   const spaceId = device.space_id;
 
   // CAS：版本号对得上才写。D1 的 UPDATE 是原子的，不需要自己加锁。
@@ -412,17 +464,28 @@ async function handlePutDoc(request, env, device, now) {
     // 冲突是正常路径：把最新版本一起返回，客户端合并后再推一次。
     const space = await loadSpace(env, spaceId);
     if (!space) return fail('not_found', 404);
-    let current = {};
-    try {
-      current = JSON.parse(space.doc || '{}');
-    } catch (e) {
-      current = {};
-    }
+    const current = parseDoc(space.doc);
+    if (current === null) return fail('corrupt_doc', 500);
     return json({ ok: false, v: space.version, doc: current }, 409);
   }
 
-  const space = await loadSpace(env, spaceId);
-  return json({ ok: true, v: space ? space.version : baseV + 1 });
+  const newVersion = baseV + 1;
+
+  // 写历史放在 CAS 成功之后：只有真正成为"某一版"的文档才值得留档。
+  // 曾经先写历史再 CAS，结果被 409 顶回来的那些都没进库，历史里留了一堆
+  // 从没生效过的中间态 —— 恢复的时候会捞到一份不存在过的状态。
+  try {
+    await keepHistory(env, spaceId, newVersion, text, now);
+    const keep = intEnv(env.HISTORY_KEEP, 20);
+    const ttl = intEnv(env.HISTORY_TTL_DAYS, 7) * 24 * 3600 * 1000;
+    await trimHistory(env, spaceId, now, keep, ttl);
+  } catch (e) {
+    // 历史写失败不能让一次成功的推送变成失败：文档已经落库了，
+    // 客户端那边版本号也已经生效。最坏情况是这一版没进历史。
+    console.error('history write failed', e && e.stack ? e.stack : e);
+  }
+
+  return json({ ok: true, v: newVersion });
 }
 
 /* ------------------------------------------------------------------ */
@@ -464,6 +527,85 @@ async function handleRevoke(request, env, device) {
 
   await env.DB.prepare('UPDATE devices SET revoked = 1 WHERE id = ?').bind(target).run();
   return json({ ok: true });
+}
+
+/* ------------------------------------------------------------------ */
+/* 历史版本                                                             */
+/* ------------------------------------------------------------------ */
+
+async function handleHistory(env, device) {
+  // 文档本体不返回 —— 列表页只要"第几版、什么时候、几个站点"。
+  const rows = await env.DB.prepare(
+    'SELECT version, doc, created_at FROM space_history WHERE space_id = ? ORDER BY version DESC LIMIT 50'
+  )
+    .bind(device.space_id)
+    .all();
+
+  const versions = (rows.results || []).map((r) => {
+    let sites = 0;
+    const doc = parseDoc(r.doc);
+    if (doc && doc.sites && typeof doc.sites === 'object') {
+      for (const k of Object.keys(doc.sites)) {
+        const s = doc.sites[k];
+        if (!s || s.deleted !== true) sites++;
+      }
+    }
+    return { v: r.version, createdAt: r.created_at, sites };
+  });
+
+  return json({ versions });
+}
+
+async function handleRestore(request, env, device, now) {
+  // 恢复本身也是一次写，单独一套额度：用完了推不上去还能恢复，这个优先级更高。
+  const ok = await rateTake(env, `rs:${device.id}`, 20, 3600 * 1000, now);
+  if (!ok) return fail('rate_limited', 429);
+
+  const body = await readJson(request);
+  const want = Number.isFinite(body && body.v) ? body.v : -1;
+  if (want < 0) return fail('bad_body', 400);
+
+  const spaceId = device.space_id;
+  const row = await env.DB.prepare(
+    'SELECT version, doc FROM space_history WHERE space_id = ? AND version = ?'
+  )
+    .bind(spaceId, want)
+    .first();
+  if (!row) return fail('no_history', 404);
+
+  // 校验一下这一版本身没坏。坏的那版捞回去等于把坏数据重新推一遍。
+  if (parseDoc(row.doc) === null) return fail('corrupt_doc', 500);
+
+  const space = await loadSpace(env, spaceId);
+  if (!space) return fail('not_found', 404);
+
+  // 走 CAS，不直接覆盖：万一这中间又有设备推了新东西，宁可让调用方拿到 409
+  // 重新决定，也不能把它刚推的改动无声地抹掉。
+  const nextV = space.version + 1;
+  const res = await env.DB.prepare(
+    'UPDATE spaces SET doc = ?, version = ?, updated_at = ? WHERE id = ? AND version = ?'
+  )
+    .bind(row.doc, nextV, now, spaceId, space.version)
+    .run();
+
+  if (!res.meta || res.meta.changes !== 1) {
+    const latest = parseDoc(space.doc);
+    if (latest === null) return fail('corrupt_doc', 500);
+    return json({ ok: false, v: space.version, doc: latest }, 409);
+  }
+
+  try {
+    await keepHistory(env, spaceId, nextV, row.doc, now);
+    // 恢复也要跟着裁剪：不然反复"恢复 → 恢复 → 恢复"会让历史表一直长，
+    // 每次恢复都往里面塞一行，而正常推送那条路的裁剪又未必轮得到。
+    const keep = intEnv(env.HISTORY_KEEP, 20);
+    const ttl = intEnv(env.HISTORY_TTL_DAYS, 7) * 24 * 3600 * 1000;
+    await trimHistory(env, spaceId, now, keep, ttl);
+  } catch (e) {
+    console.error('history write failed', e && e.stack ? e.stack : e);
+  }
+
+  return json({ ok: true, v: nextV });
 }
 
 /* ------------------------------------------------------------------ */

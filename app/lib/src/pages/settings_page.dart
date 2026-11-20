@@ -60,6 +60,7 @@ class _SettingsPageState extends State<SettingsPage> {
         state.syncStatus.name,
         state.syncStatusText,
         state.syncPending ? 'p' : '-',
+        '${state.syncPendingRemovals}',
         '${state.syncLastRunMs}',
         '${state.syncDevices.length}',
       ].join('|');
@@ -356,9 +357,12 @@ class _SettingsPageState extends State<SettingsPage> {
       SyncStatus.offline => Icons.cloud_off_outlined,
       SyncStatus.authFailed => Icons.person_off_outlined,
       SyncStatus.error => Icons.error_outline,
+      SyncStatus.needsConfirm => Icons.warning_amber_rounded,
       SyncStatus.disabled => Icons.cloud_off_outlined,
     };
-    final Color? color = st == SyncStatus.authFailed || st == SyncStatus.error
+    final Color? color = st == SyncStatus.authFailed ||
+            st == SyncStatus.error ||
+            st == SyncStatus.needsConfirm
         ? Theme.of(context).colorScheme.error
         : null;
 
@@ -373,6 +377,7 @@ class _SettingsPageState extends State<SettingsPage> {
     }
 
     return <Widget>[
+      if (state.syncPendingRemovals > 0) _bigDeleteBanner(context),
       ListTile(
         leading: Icon(icon, color: color),
         title: const Text('同步已开启'),
@@ -404,12 +409,188 @@ class _SettingsPageState extends State<SettingsPage> {
         onTap: _busySync ? null : _showDevices,
       ),
       ListTile(
+        leading: const Icon(Icons.history),
+        title: const Text('云端历史版本'),
+        subtitle: const Text('误删、合并出错时，退回之前某一版站点清单'),
+        onTap: _busySync ? null : _showHistory,
+      ),
+      ListTile(
         leading: Icon(Icons.link_off, color: Theme.of(context).colorScheme.error),
         title: Text('断开同步', style: TextStyle(color: Theme.of(context).colorScheme.error)),
         subtitle: const Text('这台设备停止同步，站点列表保持现状；别的设备不受影响'),
         onTap: _disconnectSync,
       ),
     ];
+  }
+
+  /// 骤降护栏拦下来时的那条黄色警告。
+  ///
+  /// 它出现在"检测到一次大量删除"之后：合并结果会让本机站点少一大半，
+  /// 引擎停下不写，等人点一下。**两个按钮都必须有** —— 只会说"确认删除"的话，
+  /// 用户一旦是被 bug 误导的就没退路；只会说"恢复上一版"的话，真有心想清空的
+  /// 用户又被挡死。
+  Widget _bigDeleteBanner(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final int n = state.syncPendingRemovals;
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.errorContainer.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: theme.colorScheme.error.withValues(alpha: 0.4)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Icon(Icons.warning_amber_rounded, color: theme.colorScheme.error, size: 20),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '检测到一次大量删除（$n 个站点）',
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    color: theme.colorScheme.onErrorContainer,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            '同步操作会让这台设备少掉 $n 个站点，已经先停下没执行。\n'
+            '是你自己在另一台设备上删的，就确认；不是你干的，选恢复上一版。',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onErrorContainer,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: <Widget>[
+              TextButton(
+                onPressed: _busySync ? null : _showHistory,
+                child: const Text('恢复上一版'),
+              ),
+              const SizedBox(width: 4),
+              FilledButton(
+                style: FilledButton.styleFrom(
+                  backgroundColor: theme.colorScheme.error,
+                  foregroundColor: theme.colorScheme.onError,
+                ),
+                onPressed: _busySync ? null : _confirmBigDelete,
+                child: Text('确认删除 $n 个'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _confirmBigDelete() async {
+    setState(() => _busySync = true);
+    await state.syncConfirmBigDelete();
+    if (!mounted) return;
+    setState(() => _busySync = false);
+    final int left = state.syncPendingRemovals;
+    _snack(left > 0 ? '还有 $left 个待确认，再点一次' : '已按合并结果执行');
+  }
+
+  Future<void> _showHistory() async {
+    setState(() => _busySync = true);
+    List<SyncHistoryEntry> list = const <SyncHistoryEntry>[];
+    String? err;
+    try {
+      list = await state.syncHistory();
+    } on SyncException catch (e) {
+      err = e.message;
+    } catch (e) {
+      err = '读取历史版本失败：$e';
+    }
+    if (!mounted) return;
+    setState(() => _busySync = false);
+    if (err != null) {
+      _snack(err);
+      return;
+    }
+    if (list.isEmpty) {
+      _snack('云端还没有历史版本（每次成功推送后才会留一版）');
+      return;
+    }
+    await showDialog<void>(
+      context: context,
+      builder: (BuildContext dialogContext) => AlertDialog(
+        title: const Text('云端历史版本'),
+        content: SizedBox(
+          width: 400,
+          child: ListView(
+            shrinkWrap: true,
+            children: <Widget>[
+              for (final SyncHistoryEntry h in list)
+                ListTile(
+                  dense: true,
+                  leading: const Icon(Icons.history_toggle_off, size: 20),
+                  title: Text('第 ${h.version} 版 · ${h.siteCount} 个站点'),
+                  subtitle: Text(_hms(h.createdAtMs), style: const TextStyle(fontSize: 12)),
+                  trailing: TextButton(
+                    onPressed: () async {
+                      Navigator.of(dialogContext).pop();
+                      await _restoreHistory(h.version, h.siteCount);
+                    },
+                    child: const Text('恢复'),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('关闭'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _restoreHistory(int version, int siteCount) async {
+    final bool? ok = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext dialogContext) => AlertDialog(
+        title: const Text('恢复历史版本'),
+        content: Text(
+          '把云端内容退回第 $version 版（$siteCount 个站点）。\n'
+          '这一版会成为新的当前版本，其它设备下次同步时也会跟着退回来。\n'
+          '当前版本仍留在历史里，反悔了还能再选回来。',
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('恢复'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    setState(() => _busySync = true);
+    String? err;
+    try {
+      await state.syncRestoreHistory(version);
+    } on SyncException catch (e) {
+      err = e.message;
+    } catch (e) {
+      err = '恢复失败：$e';
+    }
+    if (!mounted) return;
+    setState(() => _busySync = false);
+    _snack(err ?? '已恢复到第 $version 版');
   }
 
   Future<void> _editEndpoint() async {

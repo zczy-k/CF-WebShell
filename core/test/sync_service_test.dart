@@ -306,4 +306,59 @@ void main() {
       expect(runs, 1);
     });
   });
+
+  group('大面积删除待确认', () {
+    SyncRunResult pending() => const SyncRunResult(
+          status: SyncStatus.needsConfirm,
+          message: '检测到一次大量删除（5 个站点），已暂停执行',
+          pendingRemovals: 5,
+        );
+
+    test('拦下来的一轮把轮询放到最慢档（别在用户犹豫时狂拉整份文档）', () async {
+      final SyncService svc = make(
+        slowAfterUnchanged: 3,
+        runner: () async => pending(),
+      );
+
+      final SyncRunResult r = await svc.syncNow();
+      expect(r.awaitingConfirm, isTrue);
+      expect(r.pendingRemovals, 5);
+      expect(svc.unchangedPolls, 3, reason: '该做的事做完了，再快也是重复拉一遍');
+    });
+
+    test('确认删除走引擎那条路，不经过普通 runner', () async {
+      int runnerCalls = 0;
+      final SyncService svc = make(
+        runner: () async {
+          runnerCalls++;
+          return quiet();
+        },
+      );
+
+      final SyncRunResult r = await svc.confirmBigDelete();
+      expect(
+        runnerCalls,
+        0,
+        reason: '放行标记只在引擎的 confirmBigDelete 里立得起来，走普通 runner 等于没确认',
+      );
+      // engine 的凭证是空的 → 它自己那条路会如实报"还没配对"
+      expect(r.status, SyncStatus.authFailed);
+      expect(svc.busy, isFalse, reason: '确认完不能把 busy 挂在 true 上，界面会一直转圈');
+    });
+
+    test('确认一次之后，标记不留在引擎里（下一轮照样被拦）', () async {
+      int runs = 0;
+      final SyncService svc = make(
+        runner: () async {
+          runs++;
+          return pending();
+        },
+      );
+
+      await svc.confirmBigDelete();
+      final SyncRunResult again = await svc.syncNow(manual: true);
+      expect(again.awaitingConfirm, isTrue, reason: '确认只对一次有效，不能变成永久放行');
+      expect(runs, 1, reason: '第二轮回到了普通 runner，说明放行标记没被带过去');
+    });
+  });
 }

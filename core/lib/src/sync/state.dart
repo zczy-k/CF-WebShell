@@ -41,6 +41,13 @@ enum SyncStatus {
   /// 凭证失效 / 被踢出 —— 必须重新配对，重试没用。
   authFailed,
 
+  /// 合并结果是一次"大面积删除"，为了不误删先停下等用户点头。
+  ///
+  /// 这一条不是错误，是护栏：正常用户不会一口气删掉一半站点，会这么干的只有
+  /// 代码（跨空间残留、服务端被重置、文档损坏被当成空）。停一次让人看一眼，
+  /// 比事后从备份里捞强得多。
+  needsConfirm,
+
   /// 其它错误。
   error,
 }
@@ -55,6 +62,7 @@ class SyncRunResult {
     this.configChanged = false,
     this.pushed = false,
     this.pulled = false,
+    this.pendingRemovals = 0,
   });
 
   final SyncStatus status;
@@ -71,7 +79,14 @@ class SyncRunResult {
   final bool pushed;
   final bool pulled;
 
+  /// 被护栏拦下的那一轮里，合并**打算**删掉几个站点。只在
+  /// [SyncStatus.needsConfirm] 时有意义 —— 界面拿它写"检测到一次大量删除（13 个）"。
+  final int pendingRemovals;
+
   bool get ok => status == SyncStatus.ok;
+
+  /// 需要用户点一下头才能继续。
+  bool get awaitingConfirm => status == SyncStatus.needsConfirm;
 
   static const SyncRunResult disabled =
       SyncRunResult(status: SyncStatus.disabled, message: '同步未开启');
@@ -141,28 +156,50 @@ class SyncStateFile {
 
   static const String defaultFileName = 'webshell.sync.json';
 
-  SyncLocalState load() {
-    if (!file.existsSync()) return SyncLocalState();
-    try {
-      return SyncLocalState.fromJson(jsonDecode(file.readAsStringSync()));
-    } catch (_) {
-      // 缓存坏了就当没有。绝不能让它影响启动。
-      return SyncLocalState();
-    }
-  }
-
   void save(SyncLocalState state) {
     try {
       final Directory dir = file.parent;
       if (!dir.existsSync()) dir.createSync(recursive: true);
-      final File tmp = File('${file.path}.tmp');
-      tmp.writeAsStringSync(jsonEncode(state.toJson()), flush: true);
-      if (file.existsSync()) file.deleteSync();
-      tmp.renameSync(file.path);
+      final String text = jsonEncode(state.toJson());
+      // 先把上一版留成 .bak：缓存文件要是哪天写坏了（断电、杀毒软件截断），
+      // 下次启动能退回上一份，而不是从"什么都没有"重新猜合并基准。
+      try {
+        if (file.existsSync()) {
+          final File bak = File('${file.path}.bak');
+          file.copySync(bak.path);
+        }
+      } catch (_) {
+        // 备份失败不影响主流程
+      }
+      // 直接覆盖而不是 tmp + rename：Windows 上 delete + rename 之间有个窗口，
+      // rename 要是被文件锁挡回来，原来的文件已经没了 —— 那是真丢基准。
+      // 缓存文件只有几十 KB，覆盖写的原子性够用（进程被强杀也会留下完整旧内容）。
+      file.writeAsStringSync(text, flush: true);
     } catch (_) {
       // 目录只读 / 磁盘满 / 文件被占用（Windows 上很常见）：写不进缓存不该
       // 让整轮同步失败。最坏情况是下次启动没了合并基准，退化成一整份覆盖 ——
       // 站点列表本身不会丢，可接受。
+    }
+  }
+
+  /// 读缓存。主文件坏了自动试 `.bak`，两个都坏就当没有。
+  SyncLocalState load() {
+    final SyncLocalState? main = _tryLoad(file);
+    if (main != null) return main;
+    final SyncLocalState? bak = _tryLoad(File('${file.path}.bak'));
+    if (bak != null) return bak;
+    return SyncLocalState();
+  }
+
+  SyncLocalState? _tryLoad(File f) {
+    try {
+      if (!f.existsSync()) return null;
+      final String text = f.readAsStringSync();
+      if (text.trim().isEmpty) return null;
+      return SyncLocalState.fromJson(jsonDecode(text));
+    } catch (_) {
+      // 缓存坏了就当没有。绝不能让它影响启动。
+      return null;
     }
   }
 }
@@ -173,7 +210,12 @@ class SyncStateFile {
 /// Android 上要走 Keystore，两者都在平台层。core 只约定"能存能取"。
 abstract class SyncCredentialStore {
   Future<SyncCredentials?> read();
-  Future<void> write(SyncCredentials? credentials);
+
+  /// 返回 false 表示"没写进去"（磁盘只读、权限被改、加密失败）。
+  ///
+  /// **这个返回值必须有人看**：凭证没落盘、配置里却写着"已开启"，用户看到的是
+  /// 一个永远报「这台设备还没有配对」的开关 —— 比直接告诉他失败难查得多。
+  Future<bool> write(SyncCredentials? credentials);
 }
 
 /// 内存版（测试 / 无安全存储的降级路径）。
@@ -186,8 +228,9 @@ class MemorySyncCredentialStore implements SyncCredentialStore {
   Future<SyncCredentials?> read() async => _credentials;
 
   @override
-  Future<void> write(SyncCredentials? credentials) async {
+  Future<bool> write(SyncCredentials? credentials) async {
     _credentials = credentials;
+    return true;
   }
 }
 
@@ -245,24 +288,29 @@ class SyncEngine {
   }
 
   /// 跑一轮完整同步。并发调用会被直接忽略（返回上一轮的结果）。
+  ///
+  /// [_busy] 在**第一个 await 之前**就立起来。放在 `await credentials.read()`
+  /// 之后是个窄缝：两个调用能双双通过开头的检查，然后在 await 处一起把标记置真，
+  /// 接着并行跑两份 `_run` —— 合并结果交错写进 state，版本号互相踩。
+  /// 现在唯一调用方 `SyncService` 自己还有 `_running` 挡着，但缝不该留着。
   Future<SyncRunResult> runOnce() async {
     if (_busy) return lastResult;
-    if (!config.syncConfigured) {
-      lastResult = SyncRunResult.disabled;
-      return lastResult;
-    }
-
-    final SyncCredentials? creds = await credentials.read();
-    if (creds == null) {
-      lastResult = const SyncRunResult(
-        status: SyncStatus.authFailed,
-        message: '这台设备还没有配对',
-      );
-      return lastResult;
-    }
-
     _busy = true;
     try {
+      if (!config.syncConfigured) {
+        lastResult = SyncRunResult.disabled;
+        return lastResult;
+      }
+
+      final SyncCredentials? creds = await credentials.read();
+      if (creds == null) {
+        lastResult = const SyncRunResult(
+          status: SyncStatus.authFailed,
+          message: '这台设备还没有配对',
+        );
+        return lastResult;
+      }
+
       final SyncRunResult result = await _run(creds);
       lastResult = result;
       return result;
@@ -272,7 +320,56 @@ class SyncEngine {
       return e.result;
     } finally {
       _busy = false;
+      // 放行标记只在"确认删除"的那一轮里有效。这一轮不管走到哪（提前返回、
+      // 出错、没变化），标记都作废，免得下一次轮询莫名其妙绕过护栏。
+      _allowBigDelete = false;
     }
+  }
+
+  /// 用户点了"确认删除" —— 放行下一轮的大面积删除护栏。
+  ///
+  /// 实现上不复用上一轮的合并结果，直接重跑一轮更稳：远端可能在这几秒里又动了，
+  /// 拿旧的 merged 去写会把别人的新改动盖掉。
+  Future<SyncRunResult> confirmBigDelete() async {
+    _allowBigDelete = true;
+    return runOnce();
+  }
+
+  /// 一次性放行标记（[confirmBigDelete] 用）。
+  bool _allowBigDelete = false;
+
+  /// 拿一份能用的客户端。没配对就抛出去 —— 这两个接口是用户主动点的，
+  /// 不该像轮询那样静默返回一个状态码了事。
+  Future<SyncClient> _pairedClient() async {
+    final SyncCredentials? creds = await credentials.read();
+    if (creds == null) {
+      throw SyncException('这台设备还没有配对');
+    }
+    return SyncClient(creds);
+  }
+
+  /// 云端历史版本清单（新的在前）。
+  ///
+  /// 这是"备份"那一侧的入口：合并把数据搞乱了、或者用户手滑删了一片，
+  /// 至少还能退回到之前某一版。
+  Future<List<SyncHistoryEntry>> history() async {
+    final SyncClient client = await _pairedClient();
+    return client.history();
+  }
+
+  /// 把第 [version] 版恢复成当前版本。
+  ///
+  /// 服务端把它写成**新的一版**（版本号 +1），所以恢复完之后调用方应该再跑一轮
+  /// [runOnce] —— 这一轮会被 `HEAD` 的版本号带着把内容拉下来，其它设备同理。
+  Future<SyncPutResult> restoreHistory(int version) async {
+    final SyncClient client = await _pairedClient();
+    final SyncPutResult r = await client.restoreHistory(version);
+    if (!r.ok) {
+      // 409 说明这中间别人又推了一版。不重试：让调用方再列一次历史，
+      // 用户看着最新清单重新选，比在后台猜更靠谱。
+      throw SyncException('云端刚刚又有新改动，历史没恢复，请重新选一次');
+    }
+    return r;
   }
 
   Future<SyncRunResult> _run(SyncCredentials creds) async {
@@ -283,7 +380,8 @@ class SyncEngine {
 
     // 2) 版本号探一下
     final SyncHead head = await _guard<SyncHead>(() => client.head());
-    final bool dirty = state.local.contentHash() != state.base.contentHash();
+    // 可变：下面"服务端被重置"那条路要把它改成 true。
+    bool dirty = state.local.contentHash() != state.base.contentHash();
     if (!dirty && head.version == state.version) {
       // 3) 双方都没动 —— 最常见的情况，一次请求结束
       stateFile.save(state);
@@ -306,9 +404,52 @@ class SyncEngine {
       remoteVersion = env.version;
     }
 
+    // 4.5) 服务端被重置了吗
+    //
+    // 重建 D1、从备份还原了个空库、手工删了 spaces 那行 —— 都会让服务端文档
+    // 变空、版本号变小。这时"远端没有站点"不是因为"远端把它们删了"，而是因为
+    // 远端换了一个空库。要是照三方合并的字面意思走，本机每一条都会被判成
+    // "远端删除"，然后全量墓碑推上去，所有设备跟着清空。
+    //
+    // 判据用版本号：它只会在 CAS 成功时 +1，变小只可能是库被换了。版本号正常
+    // 递增而文档变空，才是"别人真的删光了"，那种情况照常合并。
+    final bool remoteEmpty = remoteDoc.sites.isEmpty && remoteDoc.prefs.isEmpty;
+    if (remoteEmpty && !state.base.isEmpty && remoteVersion < state.version) {
+      state.base = SyncDoc();
+      state.version = 0;
+      // base 一清，本机这份内容就成了"唯一的一份"，必须推上去把空库填回来。
+      //
+      // 不重算 dirty 会掉进一个死循环：dirty 是清 base **之前**算的
+      // （local 和 base 一样 → false），于是这一轮不推；记账又把 version 写成
+      // 远端的 0、base 写成 merged，下一轮 head.version(0) == state.version(0)
+      // 且 dirty 仍为 false → 直接 return。空库永远填不回来，其它设备全空。
+      dirty = true;
+    }
+
     SyncMergeResult merged =
         SyncDoc.merge(base: state.base, local: state.local, remote: remoteDoc, now: _clock());
     merged.doc.prune(now: _now());
+
+    // 4.6) 大面积删除护栏
+    //
+    // 正常用户不会一口气删掉一半站点。会这么干的只有代码：跨空间残留、服务端
+    // 被重置、远端文档损坏被当成空…… 这一道不修任何具体 bug，它拦的是
+    // "本机站点数要掉一半以上"这个**结果**，所以对将来新出现的 bug 一样有效。
+    // 停一轮让人看一眼，比事后从历史版本里捞强得多。
+    final int beforeAlive = config.sites.length;
+    final int afterAlive = merged.doc.aliveSites.length;
+    final int willRemove = beforeAlive - afterAlive;
+    if (!_allowBigDelete && isBigDelete(beforeAlive, afterAlive, willRemove)) {
+      // 什么都不写：不推、不改配置、不动 base/local。下一轮还会拦在这里，
+      // 直到用户点"确认删除"或者自己把站点加回来。
+      return SyncRunResult(
+        status: SyncStatus.needsConfirm,
+        message: '检测到一次大量删除（$willRemove 个站点），已暂停执行',
+        conflicts: merged.conflicts,
+        version: state.version,
+        pendingRemovals: willRemove,
+      );
+    }
 
     bool pushed = false;
     int finalVersion = remoteVersion;
@@ -432,6 +573,24 @@ class SyncEngine {
 class _SyncAbort implements Exception {
   _SyncAbort(this.result);
   final SyncRunResult result;
+}
+
+/// 大面积删除护栏的门槛：本机原本至少这么多站点才会开始判断。
+const int kBigDeleteMinAlive = 5;
+
+/// 一次要删掉至少这么多个才拦。
+const int kBigDeleteMinRemoved = 3;
+
+/// [before] 原本有几个站点、[after] 合并后剩几个、[willRemove] 这次打算删几个。
+///
+/// 判定条件是"删掉一半以上、且至少 3 个"。为什么不是"删掉 N 个就拦"：
+/// 站点少的时候误报太吵（一个人只有 4 个站，删 1 个就弹窗）。为什么不是
+/// "百分比"：站点多了以后 10% 也可能是十几个，那时候也该拦。
+/// 两个条件取交集，实际效果是"量变到能被察觉的程度才问一句"。
+bool isBigDelete(int before, int after, int willRemove) {
+  if (before < kBigDeleteMinAlive) return false;
+  if (willRemove < kBigDeleteMinRemoved) return false;
+  return after * 2 <= before;
 }
 
 /// 配置的内容指纹，用来判断"合并到底改没改本机配置"。

@@ -33,6 +33,8 @@ npx wrangler d1 create cf-webshell-sync
 
 # 2) 建表（--remote 才是真的建在线上库，别漏了）
 npx wrangler d1 execute cf-webshell-sync --remote --file=schema.sql
+#    已经部署过旧版的话，这一步要重跑一次：历史版本表是后加的，
+#    全是 IF NOT EXISTS，跑第二遍不会动已有数据。
 
 # 3) 设"部署密钥" —— 自己编一串 32 位以上的随机字符，别用生日/手机号
 #    这串东西决定了"谁能开同步空间"，它就是你的门锁。
@@ -88,13 +90,36 @@ curl https://cf-webshell-sync.xxx.workers.dev/v1/health
 | PUT | `/v1/doc` | Bearer | `{baseV, doc}` → `{ok,v}`；版本不符返回 `409 {ok:false,v,doc}` |
 | GET | `/v1/devices` | Bearer | 本空间设备列表 |
 | POST | `/v1/devices/revoke` | Bearer | `{deviceId}`，踢人（不能踢自己） |
+| GET | `/v1/history` | Bearer | `{versions:[{v,createdAt,sites}]}`，新的在前 |
+| POST | `/v1/history/restore` | Bearer | `{v}` → `{ok,v}`；期间别人又推了就 `409` |
 
 `409` 是**正常路径**不是错误：客户端拿到最新文档，三方合并后再推一次，
 用户完全看不到"冲突"两个字。
 
 ---
 
-## 五、免费额度够不够
+## 五、历史版本（误删的退路）
+
+每次推送**真正写进库之后**，服务端顺手把这一版存进 `space_history`。
+留最近 `HISTORY_KEEP` 版（默认 20），最多留 `HISTORY_TTL_DAYS` 天（默认 7）。
+两个值都在 `wrangler.toml` 的 `[vars]` 里改，改完重新 `deploy` 就生效。
+
+恢复走的是"**把老内容当成一次新推送**"，不是直接覆盖：
+
+- 版本号照样 +1，其它设备下一次 `/v1/head` 一比对就知道该拉了，
+  不需要额外的通知通道；
+- 恢复本身也走 CAS，中途有别人推了就返回 `409`，让你重新选，
+  而不是把它刚推的改动无声抹掉；
+- 恢复也有独立限流（每台设备 20 次/小时），和普通推送互不占用。
+
+App 里在**设置 → 同步 → 云端历史版本**。大面积删除被护栏拦下来时，
+那条黄条上也有一个「恢复上一版」的入口 —— 那正是最需要它的时刻。
+
+历史写失败**不会**影响推送成功：文档已经落库了，最坏情况只是这一版没留档。
+
+---
+
+## 六、免费额度够不够
 
 | 项 | 免费额度 | 这套东西的花费 |
 | --- | --- | --- |
@@ -104,7 +129,7 @@ curl https://cf-webshell-sync.xxx.workers.dev/v1/health
 
 十台设备一年也跑不满免费额度。
 
-## 六、为什么不用 KV
+## 七、为什么不用 KV
 
 KV 免费额度是 **1000 写/天**，而且写进去之后最多 60 秒才全球可见。
 "删了必须真删、不能复活"这条要求容不下这种延迟 —— 一台设备刚推完删除，
@@ -112,10 +137,16 @@ KV 免费额度是 **1000 写/天**，而且写进去之后最多 60 秒才全�
 
 ---
 
-## 七、改这里之前先看一眼
+## 八、改这里之前先看一眼
 
 - `schema.sql` 全是 `IF NOT EXISTS`，可以重复执行。
 - 加字段请**只增不改**：老版本 App 读到不认识的字段会直接忽略。
 - 文档体积上限默认 512 KB（`wrangler.toml` 里的 `MAX_DOC_BYTES`）。
   几百个站点 × 每个都带自定义 header 才可能碰到它。
 - `MAX_DEVICES` 默认 `0` = 不限。想限制就把数字填上，超了会返回 `space_full`。
+- **库里存的文档解析不出来时，一律返回 `corrupt_doc` 500，当成空文档处理是错的。**
+  空文档在合并里等于"远端把站点全删了"，一次解析失败就会让所有设备跟着清空。
+  宁可这一轮同步失败（用户看到重试），也不能把坏数据当真。
+- 历史版本想立刻清空：`npx wrangler d1 execute cf-webshell-sync --remote
+  --command="DELETE FROM space_history"`。平时靠 `HISTORY_KEEP` /
+  `HISTORY_TTL_DAYS` 自动裁剪，不用管。

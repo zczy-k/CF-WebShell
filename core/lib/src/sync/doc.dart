@@ -768,7 +768,12 @@ Map<String, dynamic> _mergeFields(
       out[k] = lv;
     } else {
       out[k] = preferRemote ? rv : lv;
-      conflicts[0] = conflicts[0] + 1;
+      // 只有 base 里**本来就有这个键**、两边又改成了不同的值，才算真冲突。
+      //
+      // 少了这个判断，"两台设备各自新增同一个地址"会被判成一整串字段冲突：
+      // base 里没有这个键 → bv 是 null → 两个 _eq 全 false → 十个字段逐个报冲突
+      // → 界面弹出"11 处两边都改过"。可实际是两边加了一模一样的东西。
+      if (base.containsKey(k)) conflicts[0] = conflicts[0] + 1;
     }
   }
   return out;

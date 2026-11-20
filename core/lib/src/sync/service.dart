@@ -26,6 +26,7 @@ library;
 
 import 'dart:async';
 
+import 'client.dart';
 import 'state.dart';
 
 /// 同步调度器。**不含合并逻辑**，只负责触发和节流。
@@ -141,7 +142,14 @@ class SyncService {
   }
 
   /// 立刻跑一轮（手动点"立即同步"也走这里）。
-  Future<SyncRunResult> syncNow({bool manual = false}) async {
+  ///
+  /// [runner] 只给"确认删除"这条路用：它要跑的是 [SyncEngine.confirmBigDelete]
+  /// 而不是普通的 [SyncEngine.runOnce]。走同一个入口是为了复用 `_running` 挡板、
+  /// 降频计数和通知，不然那条路能绕开调度层、和轮询同时开两份。
+  Future<SyncRunResult> syncNow({
+    bool manual = false,
+    Future<SyncRunResult> Function()? runner,
+  }) async {
     if (_disposed) return SyncRunResult.disabled;
     _debounceTimer?.cancel();
     _debounceTimer = null;
@@ -160,7 +168,7 @@ class SyncService {
 
     SyncRunResult result;
     try {
-      result = await _run();
+      result = await (runner ?? _run)();
     } catch (e) {
       // runOnce 内部已经把网络错误翻成状态了，走到这里说明是意料之外的异常
       // （比如合并结果写回配置时炸了）。绝不能让它冒出去变成未捕获异常。
@@ -172,7 +180,11 @@ class SyncService {
     if (_disposed) return result;
 
     _lastRunMs = DateTime.now().millisecondsSinceEpoch;
-    if (result.ok && !result.pushed && !result.pulled) {
+    if (result.awaitingConfirm) {
+      // 等用户点头。这一轮该做的事已经做完了（护栏拦住了），再快也没用 ——
+      // 直接放到最慢节奏，别让它在用户还在犹豫的时候每分钟拉一遍整份文档。
+      _unchanged = slowAfterUnchanged;
+    } else if (result.ok && !result.pushed && !result.pulled) {
       _unchanged++;
     } else {
       // 有推送 / 有拉取 / 出错：都回到快节奏，出错要尽快重试，有变化说明对面活着
@@ -184,6 +196,20 @@ class SyncService {
     _schedule();
     return result;
   }
+
+  /// 用户点了"确认删除"：放行这一轮的大面积删除护栏。
+  ///
+  /// 放行**只对这一次调用有效**，引擎那一侧在 `runOnce` 的 finally 里就把标记
+  /// 清掉了。所以用户要是再改主意，下一轮轮询照样会被拦下来。
+  Future<SyncRunResult> confirmBigDelete() {
+    return syncNow(manual: true, runner: engine.confirmBigDelete);
+  }
+
+  /// 云端历史版本清单（新的在前）。
+  Future<List<SyncHistoryEntry>> history() => engine.history();
+
+  /// 把第 [version] 版恢复成当前版本。恢复完记得再跑一轮把它拉下来。
+  Future<SyncPutResult> restoreHistory(int version) => engine.restoreHistory(version);
 
   /// 手动同步后把节奏重置回快的。
   void resetSchedule() {

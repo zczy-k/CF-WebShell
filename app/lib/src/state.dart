@@ -450,6 +450,15 @@ class ShellState extends ChangeNotifier {
   /// 有本机改动还没同步出去。
   bool get syncPending => sync?.pending ?? false;
 
+  /// 骤降护栏拦下来的"待确认删除数"（0 = 没有待确认的删除）。
+  ///
+  /// 界面拿它来决定要不要出那条黄色警告条。
+  int get syncPendingRemovals {
+    final SyncRunResult? r = sync?.lastResult;
+    if (r == null || !r.awaitingConfirm) return 0;
+    return r.pendingRemovals;
+  }
+
   /// 上次同步跑完的时刻（0 = 还没跑过）。
   int get syncLastRunMs => sync?.lastRunMs ?? 0;
 
@@ -464,11 +473,19 @@ class ShellState extends ChangeNotifier {
         return '正在同步…';
       case SyncStatus.ok:
         final SyncRunResult r = s?.lastResult ?? SyncRunResult.disabled;
+        // 冲突数必须先说。放在 pushed/pulled 后面会被那两个吃掉 ——
+        // "已上传本机改动"说完就 return 了，用户永远看不到"有 3 处两边都改过"，
+        // 而那正是他最需要知道的一句。
+        if (r.conflicts > 0) return '已同步（${r.conflicts} 处两边都改过，按时间取新）';
         if (r.pushed && r.pulled) return '已同步（本机与其它设备都有改动）';
         if (r.pushed) return '已上传本机改动';
         if (r.pulled) return '已接收其它设备的改动';
-        if (r.conflicts > 0) return '已同步（${r.conflicts} 处两边都改过，按时间取新）';
         return '已是最新';
+      case SyncStatus.needsConfirm:
+        final int n = syncPendingRemovals;
+        return n > 0
+            ? '检测到一次大量删除（$n 个站点），已暂停执行'
+            : '检测到一次大量删除，已暂停执行';
       case SyncStatus.offline:
         return '连不上同步服务，稍后自动重试';
       case SyncStatus.authFailed:
@@ -476,6 +493,30 @@ class ShellState extends ChangeNotifier {
       case SyncStatus.error:
         return s?.message ?? '同步出错';
     }
+  }
+
+  /// 用户点了"确认删除"：放行一轮骤降护栏，然后照常同步。
+  Future<void> syncConfirmBigDelete() async {
+    final SyncService? s = sync;
+    if (s == null) return;
+    await s.confirmBigDelete();
+    notifyListeners();
+  }
+
+  /// 云端历史版本清单。失败返回空列表 + 把错误信息交给调用方。
+  Future<List<SyncHistoryEntry>> syncHistory() async {
+    final SyncService? s = sync;
+    if (s == null) return const <SyncHistoryEntry>[];
+    return s.history();
+  }
+
+  /// 把第 [version] 版恢复成当前版本，然后立刻拉一轮把内容取回来。
+  Future<void> syncRestoreHistory(int version) async {
+    final SyncService? s = sync;
+    if (s == null) return;
+    await s.restoreHistory(version);
+    await s.syncNow(manual: true);
+    notifyListeners();
   }
 
   /// 第一台设备：用部署时设的密钥开一个空间。返回 null = 成功。
@@ -520,7 +561,37 @@ class ShellState extends ChangeNotifier {
 
   /// 收下凭证 → 打开开关 → 立刻同步一轮。
   Future<void> _adoptCredentials(SyncCredentials creds) async {
-    await _credStore.write(creds);
+    final bool stored = await _credStore.write(creds);
+    if (!stored) {
+      throw const SyncException('凭证写不进安全存储（目录只读或磁盘满），这次没有开启同步');
+    }
+
+    // 换了空间（或者换了服务地址）就等于换了参照系。
+    //
+    // 本地缓存里的 base/local/version 说的全是**上一个空间**的事。要是原样留着，
+    // 第一轮合并看到"远端什么都没有、base 里全是站点"，会判定成"远端把这些站点
+    // 全删了"，然后把本机清空、把墓碑推上去 —— 断开同步再加入另一个空间，
+    // 用户的站点就当场没了。
+    //
+    // 只清 base 和 version，**留着 local**：local 是本机现状，保住它，第一轮就会
+    // 判成"本地有、远端空 = 本地新增"，站点正常推上去。
+    final String oldSpace = config.syncSpaceId;
+    final String oldEndpoint = config.syncEndpoint;
+    if (oldSpace.isNotEmpty &&
+        (oldSpace != creds.spaceId || oldEndpoint != creds.endpoint)) {
+      final SyncEngine? engine = sync?.engine;
+      if (engine != null) {
+        // 墓碑也一起丢掉。它的全部意义是"告诉**同一个空间**里的其它设备这条删了"，
+        // 换空间以后这个上下文不存在了 —— 留着它，万一新空间里恰好有同地址的
+        // 站点，第一轮就会把它按"本地更早的删除"给删掉。
+        engine.state.local.sites.removeWhere((_, SyncSite s) => s.deleted);
+        engine.state
+          ..base = SyncDoc()
+          ..version = 0;
+        engine.stateFile.save(engine.state);
+      }
+    }
+
     config.syncEnabled = true;
     config.syncEndpoint = creds.endpoint;
     config.syncSpaceId = creds.spaceId;

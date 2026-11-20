@@ -41,6 +41,23 @@ CREATE TABLE IF NOT EXISTS pair_codes (
 
 CREATE INDEX IF NOT EXISTS idx_pair_expires ON pair_codes (expires_at);
 
+-- 历史版本。每次推送成功顺手插一条，只留最近的若干版。
+--
+-- 它不参与合并，也不参与版本号 CAS —— 纯粹是"回去的路"。合并算法再严密也防不住
+-- 输入本身就是假的（库被重建、文档损坏、某台设备把空文档推上来），那时候唯一
+-- 能救用户的就是"十分钟前那一版还在"。
+--
+-- 代价：一次推送多写一行。免费额度 10 万行/天，一天几十次推送根本碰不到边。
+CREATE TABLE IF NOT EXISTS space_history (
+  space_id    TEXT    NOT NULL,
+  version     INTEGER NOT NULL,
+  doc         TEXT    NOT NULL,
+  created_at  INTEGER NOT NULL,
+  PRIMARY KEY (space_id, version)
+);
+
+CREATE INDEX IF NOT EXISTS idx_history_created ON space_history (space_id, created_at);
+
 -- 固定窗口限流。用一张表而不是 KV：少一个绑定，少一份额度，
 -- 而且限流本来就是"写一次计数器"，正好是 D1 擅长的。
 CREATE TABLE IF NOT EXISTS rate (

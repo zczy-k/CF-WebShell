@@ -33,15 +33,22 @@ class SecureSyncCredentialStore implements SyncCredentialStore {
   }
 
   @override
-  Future<void> write(SyncCredentials? credentials) async {
+  Future<bool> write(SyncCredentials? credentials) async {
     try {
       if (credentials == null) {
         await _secure.delete(key: key);
       } else {
         await _secure.write(key: key, value: jsonEncode(credentials.toJson()));
       }
+      // 回读一次确认真的落盘了。这个文件很小，多读一遍的代价可以忽略，
+      // 换来的是"写失败不会被当成成功" —— 不然配置说已开启、界面永远报
+      // 「这台设备还没有配对」，用户根本不知道该查哪里。
+      if (credentials == null) return true;
+      final String? back = await _secure.read(key: key);
+      return back != null && back.isNotEmpty;
     } catch (_) {
-      // 写不进去（磁盘满 / 只读）不该让同步流程崩；下一次写还会再试。
+      // 写不进去（磁盘满 / 只读 / 加密失败）要把 false 交回去，让调用方回滚开关。
+      return false;
     }
   }
 }

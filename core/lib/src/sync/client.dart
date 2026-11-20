@@ -157,6 +157,30 @@ class SyncDeviceInfo {
   }
 }
 
+/// 历史版本的一条摘要（不带文档本体 —— 列表页只要版本号和时间）。
+class SyncHistoryEntry {
+  const SyncHistoryEntry({
+    required this.version,
+    required this.createdAtMs,
+    required this.siteCount,
+  });
+
+  final int version;
+  final int createdAtMs;
+
+  /// 那一版里活着的站点数。用来在界面上写"12 个站点"。
+  final int siteCount;
+
+  static SyncHistoryEntry fromJson(Object? raw) {
+    final Map<dynamic, dynamic> m = raw is Map ? raw : const <dynamic, dynamic>{};
+    return SyncHistoryEntry(
+      version: _i(m['v']),
+      createdAtMs: _i(m['createdAt']),
+      siteCount: _i(m['sites']),
+    );
+  }
+}
+
 /// 配对码。
 class SyncPairCode {
   const SyncPairCode({required this.code, required this.expiresAtMs});
@@ -240,6 +264,41 @@ class SyncClient {
       '/v1/devices/revoke',
       headers: _authHeaders,
       body: <String, dynamic>{'deviceId': deviceId},
+    );
+  }
+
+  /// 历史版本清单（新的在前）。用来在界面上给"恢复"选一个点。
+  Future<List<SyncHistoryEntry>> history() async {
+    final Object? raw = await _request('GET', '/v1/history', headers: _authHeaders);
+    final Map<dynamic, dynamic> m = raw is Map ? raw : const <dynamic, dynamic>{};
+    final Object? list = m['versions'];
+    final List<SyncHistoryEntry> out = <SyncHistoryEntry>[];
+    if (list is List) {
+      for (final Object? e in list) {
+        out.add(SyncHistoryEntry.fromJson(e));
+      }
+    }
+    return out;
+  }
+
+  /// 把某一版历史**重新当成一次正常推送**写回去。
+  ///
+  /// 不走"直接覆盖库"的捷径，是为了让其它设备靠现有的轮询自然收到 ——
+  /// 版本号单调递增，别人的 `HEAD` 一比对就知道该拉了，不需要额外的通知机制。
+  Future<SyncPutResult> restoreHistory(int version) async {
+    final Object? raw = await _request(
+      'POST',
+      '/v1/history/restore',
+      headers: _authHeaders,
+      body: <String, dynamic>{'v': version},
+      allowStatus: const <int>{409},
+    );
+    final Map<dynamic, dynamic> m = raw is Map ? raw : const <dynamic, dynamic>{};
+    final bool ok = m['ok'] == true;
+    return SyncPutResult(
+      ok: ok,
+      version: _i(m['v']),
+      doc: ok ? null : SyncDoc.fromJson(m['doc']),
     );
   }
 
@@ -447,6 +506,10 @@ class SyncClient {
         return '请求太频繁，稍后会自动重试';
       case 'cannot_revoke_self':
         return '这是当前这台设备，不能把自己移出（要停用请点「断开同步」）';
+      case 'corrupt_doc':
+        return '服务端的同步文档已损坏，已停止写入以免覆盖，稍后重试';
+      case 'no_history':
+        return '这一版历史已经不在了，重新打开历史版本列表看看';
     }
     return code;
   }
