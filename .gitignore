@@ -31,3 +31,7 @@ worker-sync/.wrangler/
 worker-sync/.dev.vars
 worker-sync/.dev.vars.*
 worker-sync/package-lock.json
+
+# 本地验证用的 Dart SDK（CI 之外能跑 dart analyze / dart test）。
+# 只是工具缓存，丢时目录，不入库。
+.sdkc/
