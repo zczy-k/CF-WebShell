@@ -65,6 +65,8 @@ class DownloadTask {
   String? etag;
   String? lastModified;
 
+  int _runGeneration = 0;
+
   final int createdAtMs;
 
   double get progress {
@@ -151,6 +153,7 @@ class DownloadResponse {
     this.fileName,
     this.contentLength,
     this.totalLength,
+    this.contentRangeStart,
     this.acceptsRanges = false,
     this.contentType,
     this.etag,
@@ -169,6 +172,9 @@ class DownloadResponse {
   /// 文件总长度。
   final int? totalLength;
 
+  /// `Content-Range` 中本次响应体的起始字节。
+  final int? contentRangeStart;
+
   final bool acceptsRanges;
   final String? contentType;
 
@@ -181,6 +187,13 @@ class DownloadResponse {
 abstract class DownloadSink {
   void add(List<int> chunk);
   Future<void> close();
+}
+
+/// 可选能力：读取已落盘部分文件的实际长度。
+///
+/// 自定义传输层若不提供此能力，管理器会从头下载而不会猜测偏移。
+abstract class DownloadFileLength {
+  Future<int?> fileLength(String path);
 }
 
 /// 传输层接口。
@@ -204,7 +217,7 @@ abstract class DownloadTransport {
 }
 
 /// 真机实现：`dart:io` 的 `HttpClient` + 本地文件。
-class FileDownloadTransport implements DownloadTransport {
+class FileDownloadTransport implements DownloadTransport, DownloadFileLength {
   FileDownloadTransport({HttpClient? client})
       : _client = client ??
             (HttpClient()
@@ -236,8 +249,10 @@ class FileDownloadTransport implements DownloadTransport {
 
     final HttpClientResponse resp = await req.close();
     final int? remaining = resp.contentLength >= 0 ? resp.contentLength : null;
-    final int? totalFromRange =
-        _totalFromContentRange(resp.headers.value(HttpHeaders.contentRangeHeader));
+    final String? contentRange =
+        resp.headers.value(HttpHeaders.contentRangeHeader);
+    final int? totalFromRange = _totalFromContentRange(contentRange);
+    final int? rangeStart = _startFromContentRange(contentRange);
 
     int? total;
     if (totalFromRange != null) {
@@ -253,6 +268,7 @@ class FileDownloadTransport implements DownloadTransport {
           resp.headers.value('content-disposition')),
       contentLength: remaining,
       totalLength: total,
+      contentRangeStart: rangeStart,
       acceptsRanges:
           (resp.headers.value(HttpHeaders.acceptRangesHeader)?.toLowerCase().contains('bytes') ??
                   false) ||
@@ -271,6 +287,13 @@ class FileDownloadTransport implements DownloadTransport {
       await f.parent.create(recursive: true);
     }
     return FileDownloadSink(f, append: append);
+  }
+
+  @override
+  Future<int?> fileLength(String path) async {
+    final File file = File(path);
+    if (!await file.exists()) return 0;
+    return file.length();
   }
 
   @override
@@ -393,6 +416,7 @@ class DownloadManager {
   void pause(String id) {
     final DownloadTask? t = byId(id);
     if (t == null || !t.isActive) return;
+    t._runGeneration++;
     t.status = DownloadStatus.paused;
     _notify(t, force: true);
   }
@@ -412,6 +436,7 @@ class DownloadManager {
     final DownloadTask? t = byId(id);
     if (t == null) return;
     final bool wasActive = t.isActive;
+    t._runGeneration++;
     t.status = DownloadStatus.canceled;
     _notify(t, force: true);
     // 正在写的那个由 _run 收尾后删（否则会和正在写入的 sink 打架）
@@ -474,32 +499,50 @@ class DownloadManager {
       if (i < 0) return;
       final DownloadTask task = tasks[i];
       task.status = DownloadStatus.running;
+      final int generation = ++task._runGeneration;
       _running++;
       _notify(task, force: true);
-      _run(task).whenComplete(() {
+      _run(task, generation).whenComplete(() {
         _running--;
         if (!_closed) _pump();
       });
     }
   }
 
-  Future<void> _run(DownloadTask task) async {
+  bool _isCurrentAttempt(DownloadTask task, int generation) =>
+      !_closed &&
+      task.status == DownloadStatus.running &&
+      task._runGeneration == generation;
+
+  Future<int?> _readActualFileLength(String path) async {
+    final DownloadTransport transport = _transport;
+    if (transport is! DownloadFileLength) return null;
+    try {
+      return await (transport as DownloadFileLength).fileLength(path);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _run(DownloadTask task, int generation) async {
     int attempt = 0;
-    while (!_closed && task.status == DownloadStatus.running) {
+    while (_isCurrentAttempt(task, generation)) {
       attempt++;
       try {
-        await _attempt(task);
+        await _attempt(task, generation);
         break; // 正常返回：下完了，或者被暂停/取消
       } on DownloadException catch (e) {
+        if (!_isCurrentAttempt(task, generation)) break;
         task.error = e.message;
       } catch (e) {
+        if (!_isCurrentAttempt(task, generation)) break;
         task.error = e.toString();
       }
-      if (_closed || task.status != DownloadStatus.running) break;
+      if (!_isCurrentAttempt(task, generation)) break;
       if (attempt >= maxAttempts) break;
       await Future<void>.delayed(retryDelay * attempt);
     }
-    if (!_closed && task.status == DownloadStatus.running) {
+    if (_isCurrentAttempt(task, generation)) {
       task.status = DownloadStatus.failed;
       _notify(task, force: true);
     }
@@ -509,41 +552,81 @@ class DownloadManager {
     }
   }
 
-  Future<void> _attempt(DownloadTask task) async {
+  Future<void> _attempt(DownloadTask task, int generation) async {
     final DownloadHeaderProvider? provider = _headers;
     final Map<String, String> headers =
         provider == null ? const <String, String>{} : await provider(task);
+    if (!_isCurrentAttempt(task, generation)) return;
 
-    final int offset = task.received;
-    final DownloadResponse resp = await _transport.open(
+    String? path = task.savePath;
+    int offset = task.received;
+    if (offset > 0) {
+      final String resumePath;
+      if (path == null || path.isEmpty) {
+        resumePath = await _resolveSavePath(task);
+        if (!_isCurrentAttempt(task, generation)) return;
+        task.savePath = resumePath;
+        path = resumePath;
+      } else {
+        resumePath = path;
+      }
+      final int? actualLength = await _readActualFileLength(resumePath);
+      if (!_isCurrentAttempt(task, generation)) return;
+      if (actualLength != offset) {
+        // 文件缺失、长度不符或传输层无法核实：不猜偏移，安全从头下载。
+        task.received = 0;
+        offset = 0;
+      }
+    }
+
+    DownloadResponse resp = await _transport.open(
       Uri.parse(task.url),
       headers: headers,
       offset: offset,
       // 续传时带上上次的校验器：文件没变服务端才回 206，变了回 200 全量。
       ifRange: offset > 0 ? (task.etag ?? task.lastModified) : null,
     );
-
-    if (resp.statusCode >= 400) {
-      throw DownloadException('服务器返回错误', statusCode: resp.statusCode);
+    if (!_isCurrentAttempt(task, generation)) {
+      await _discardResponse(resp);
+      return;
     }
-    if (resp.statusCode != 200 && resp.statusCode != 206) {
-      throw DownloadException('服务器返回了意外状态', statusCode: resp.statusCode);
+    _checkResponseStatus(resp);
+
+    if (resp.statusCode == 206 && resp.contentRangeStart != offset) {
+      if (offset == 0) {
+        await _discardResponse(resp);
+        throw DownloadException('服务器返回的 Content-Range 起点无效');
+      }
+      await _discardResponse(resp);
+      if (!_isCurrentAttempt(task, generation)) return;
+
+      // 起点不匹配时丢弃本次响应，再发不带 Range 的全量请求。
+      task.received = 0;
+      offset = 0;
+      resp = await _transport.open(
+        Uri.parse(task.url),
+        headers: headers,
+        offset: 0,
+      );
+      if (!_isCurrentAttempt(task, generation)) {
+        await _discardResponse(resp);
+        return;
+      }
+      _checkResponseStatus(resp);
+      if (resp.statusCode == 206 && resp.contentRangeStart != 0) {
+        throw DownloadException('服务器返回的 Content-Range 起点无效');
+      }
+    }
+
+    if (resp.statusCode == 200 && task.received > 0) {
+      // 服务端不支持续传（或 If-Range 校验失败、文件已变）：从头写，进度归零。
+      task.received = 0;
     }
 
     // 服务端给了名字就用它的（比 URL 末段准，尤其是带签名的下载链接）。
     final String? serverName = resp.fileName;
     if (serverName != null && serverName.trim().isNotEmpty && offset == 0) {
       task.fileName = sanitizeFileName(serverName);
-    }
-
-    final String? existing = task.savePath;
-    final String path = (existing != null && existing.isNotEmpty)
-        ? existing
-        : (task.savePath = await _resolveSavePath(task));
-
-    if (offset > 0 && resp.statusCode == 200) {
-      // 服务端不支持续传（或 If-Range 校验失败、文件已变）：从头写，进度归零。
-      task.received = 0;
     }
 
     // 记下服务端这次给的校验器，供下次续传做 `If-Range`。
@@ -560,20 +643,52 @@ class DownloadManager {
     }
 
     final int? remaining = resp.contentLength;
-    final int? total = resp.totalLength ?? (remaining == null ? null : task.received + remaining);
-    if (total != null) task.total = total;
+    final int? total = resp.totalLength ??
+        (remaining == null
+            ? (resp.statusCode == 200 ? null : task.total)
+            : task.received + remaining);
+    if (resp.statusCode == 200 || total != null) task.total = total;
     task.resumable = resp.acceptsRanges;
-    final bool append = task.received > 0;
+    if (path == null || path.isEmpty) {
+      path = await _resolveSavePath(task);
+      if (!_isCurrentAttempt(task, generation)) return;
+      task.savePath = path;
+    }
+    final String destinationPath = path;
+    final bool append = offset > 0 && resp.statusCode == 206;
+    if (append) {
+      final int? currentLength = await _readActualFileLength(destinationPath);
+      if (!_isCurrentAttempt(task, generation)) {
+        await _discardResponse(resp);
+        return;
+      }
+      if (currentLength != offset) {
+        await _discardResponse(resp);
+        if (!_isCurrentAttempt(task, generation)) return;
+        task.received = 0;
+        await _attempt(task, generation);
+        return;
+      }
+    }
 
-    final DownloadSink sink = await _transport.openSink(path, append: append);
+    final DownloadSink sink =
+        await _transport.openSink(destinationPath, append: append);
+    if (!_isCurrentAttempt(task, generation)) {
+      await sink.close();
+      if (task.status == DownloadStatus.canceled) {
+        await _cleanupPartial(task);
+      }
+      return;
+    }
+
+    bool sinkClosed = false;
     try {
       await for (final List<int> chunk in resp.bytes) {
-        if (_closed || task.status != DownloadStatus.running) {
+        if (!_isCurrentAttempt(task, generation)) {
           // 暂停/退出：把 sink 关掉收尾，半截文件留着以便续传。
-          // 取消：用户明确不要这个文件了，把半截删掉 —— cancel() 的注释
-          // 一直声称"由 _run 收尾后删"，这里才是真正兑现的地方（此前只关
-          // sink 不删，取消的任务会在磁盘上留一堆没人清的半截文件）。
+          // 取消：关掉 sink 后删半截文件。
           await sink.close();
+          sinkClosed = true;
           if (task.status == DownloadStatus.canceled) {
             await _cleanupPartial(task);
           }
@@ -582,18 +697,43 @@ class DownloadManager {
         sink.add(chunk);
         task.received += chunk.length;
         final int? known = task.total;
-        if (known != null && task.received > known) task.total = task.received;
+        if (known != null && task.received > known) {
+          task.received = 0;
+          throw DownloadException('下载长度超过服务器声明的总长度');
+        }
         _notify(task);
       }
       await sink.close();
-      if (_closed) return;
+      sinkClosed = true;
+      if (!_isCurrentAttempt(task, generation)) return;
+      final int? known = task.total;
+      if (known != null && task.received != known) {
+        throw DownloadException('下载长度与服务器声明的总长度不符');
+      }
       task.status = DownloadStatus.done;
       task.error = null;
       _notify(task, force: true);
     } catch (e) {
-      await sink.close();
+      if (!sinkClosed) await sink.close();
       rethrow;
     }
+  }
+
+  void _checkResponseStatus(DownloadResponse response) {
+    if (response.statusCode >= 400) {
+      throw DownloadException('服务器返回错误', statusCode: response.statusCode);
+    }
+    if (response.statusCode != 200 && response.statusCode != 206) {
+      throw DownloadException('服务器返回了意外状态', statusCode: response.statusCode);
+    }
+  }
+
+  Future<void> _discardResponse(DownloadResponse response) async {
+    final StreamSubscription<List<int>> subscription = response.bytes.listen(
+      (_) {},
+      onError: (Object _, StackTrace __) {},
+    );
+    await subscription.cancel();
   }
 
   Future<String> _resolveSavePath(DownloadTask task) async {
@@ -635,6 +775,19 @@ int? _totalFromContentRange(String? value) {
   final String tail = value.substring(slash + 1).trim();
   if (tail == '*') return null;
   return int.tryParse(tail);
+}
+
+int? _startFromContentRange(String? value) {
+  if (value == null) return null;
+  final RegExpMatch? match = RegExp(
+    r'^\s*bytes\s+(\d+)-(\d+)/(?:\d+|\*)\s*$',
+    caseSensitive: false,
+  ).firstMatch(value);
+  if (match == null) return null;
+  final int? start = int.tryParse(match.group(1)!);
+  final int? end = int.tryParse(match.group(2)!);
+  if (start == null || end == null || end < start) return null;
+  return start;
 }
 
 /// 解析 `Content-Disposition` 里的文件名（支持 RFC 5987 的 `filename*`）。

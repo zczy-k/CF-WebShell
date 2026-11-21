@@ -1,9 +1,98 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:test/test.dart';
 import 'package:starport_core/starport_core.dart';
 
 import 'support/fake_transport.dart';
+
+class _LengthAwareFakeTransport extends FakeTransport
+    implements DownloadFileLength {
+  _LengthAwareFakeTransport({
+    super.files,
+    super.chunkSize,
+    super.chunkDelay,
+  });
+
+  int rangeStartDelta = 0;
+  int? responseBodyLimit;
+  int? totalLengthOverride;
+
+  @override
+  Future<DownloadResponse> open(
+    Uri url, {
+    required Map<String, String> headers,
+    int offset = 0,
+    String? ifRange,
+  }) async {
+    final DownloadResponse response = await super.open(
+      url,
+      headers: headers,
+      offset: offset,
+      ifRange: ifRange,
+    );
+    Stream<List<int>> bytes = response.bytes;
+    final int? limit = responseBodyLimit;
+    if (limit != null) bytes = _takeBytes(bytes, limit);
+    return DownloadResponse(
+      statusCode: response.statusCode,
+      bytes: bytes,
+      fileName: response.fileName,
+      contentLength: response.contentLength,
+      totalLength: totalLengthOverride ?? response.totalLength,
+      contentRangeStart:
+          response.statusCode == 206 ? offset + rangeStartDelta : null,
+      acceptsRanges: response.acceptsRanges,
+      contentType: response.contentType,
+      etag: response.etag,
+      lastModified: response.lastModified,
+    );
+  }
+
+  @override
+  Future<int?> fileLength(String path) async => saved[path]?.length ?? 0;
+}
+
+Stream<List<int>> _takeBytes(Stream<List<int>> source, int limit) async* {
+  int remaining = limit;
+  await for (final List<int> chunk in source) {
+    if (remaining <= 0) break;
+    final int count = chunk.length < remaining ? chunk.length : remaining;
+    yield chunk.sublist(0, count);
+    remaining -= count;
+  }
+}
+
+class _CloseGateTransport extends _LengthAwareFakeTransport {
+  _CloseGateTransport({super.files, super.chunkSize, super.chunkDelay});
+
+  final Completer<void> closeStarted = Completer<void>();
+  final Completer<void> releaseClose = Completer<void>();
+
+  @override
+  Future<DownloadSink> openSink(String path, {required bool append}) async {
+    final DownloadSink inner = await super.openSink(path, append: append);
+    return _CloseGateSink(inner, closeStarted, releaseClose.future);
+  }
+}
+
+class _CloseGateSink implements DownloadSink {
+  _CloseGateSink(this.inner, this.started, this.release);
+
+  final DownloadSink inner;
+  final Completer<void> started;
+  final Future<void> release;
+
+  @override
+  void add(List<int> chunk) => inner.add(chunk);
+
+  @override
+  Future<void> close() async {
+    if (!started.isCompleted) started.complete();
+    await release;
+    await inner.close();
+  }
+}
 
 final List<int> _body = List<int>.generate(32, (int i) => i % 251);
 const String _url = 'https://example.com/f.bin';
@@ -160,8 +249,10 @@ void main() {
   });
 
   group('断点续传', () {
-    test('有半截文件时带 Range 继续，拼成完整文件', () async {
-      final FakeTransport t = FakeTransport(files: <String, FakeFile>{_url: FakeFile(_body)});
+    test('有半截文件且 Content-Range 起点匹配时 append 续传', () async {
+      final _LengthAwareFakeTransport t = _LengthAwareFakeTransport(
+        files: <String, FakeFile>{_url: FakeFile(_body)},
+      );
       final DownloadManager m = _manager(t);
       final DownloadTask task = m.enqueue(url: _url, siteId: 's', startPaused: true);
 
@@ -173,7 +264,7 @@ void main() {
       m.resume(task.id);
       await m.waitIdle();
 
-      expect(t.requestedOffsets, contains(12));
+      expect(t.requestedOffsets, <int>[12]);
       expect(t.saved['/dl/f.bin'], _body);
       expect(task.status, DownloadStatus.done);
       expect(task.resumable, isTrue);
@@ -181,8 +272,9 @@ void main() {
     });
 
     test('服务端不支持 Range 时从头重下，不留脏数据', () async {
-      final FakeTransport t = FakeTransport(files: <String, FakeFile>{_url: FakeFile(_body)})
-        ..honourRange = false;
+      final _LengthAwareFakeTransport t = _LengthAwareFakeTransport(
+        files: <String, FakeFile>{_url: FakeFile(_body)},
+      )..honourRange = false;
       final DownloadManager m = _manager(t);
       final DownloadTask task = m.enqueue(url: _url, siteId: 's', startPaused: true);
       task.received = 12;
@@ -198,9 +290,84 @@ void main() {
     });
   });
 
+  group('续传完整性', () {
+    test('传输层无法核实本地长度时不盲目 append', () async {
+      final FakeTransport t = FakeTransport(
+        files: <String, FakeFile>{_url: FakeFile(_body)},
+      );
+      final DownloadManager m = _manager(t);
+      final DownloadTask task = m.enqueue(url: _url, siteId: 's', startPaused: true);
+      task.received = 12;
+      task.savePath = '/dl/f.bin';
+      t.saved['/dl/f.bin'] = _body.sublist(0, 12);
+
+      m.resume(task.id);
+      await m.waitIdle();
+
+      expect(t.requestedOffsets, <int>[0]);
+      expect(t.saved['/dl/f.bin'], _body);
+      expect(task.status, DownloadStatus.done);
+    });
+
+    test('本地部分文件长度与 task offset 不符时从头下载', () async {
+      final _LengthAwareFakeTransport t = _LengthAwareFakeTransport(
+        files: <String, FakeFile>{_url: FakeFile(_body)},
+      );
+      final DownloadManager m = _manager(t);
+      final DownloadTask task = m.enqueue(url: _url, siteId: 's', startPaused: true);
+      task.received = 12;
+      task.savePath = '/dl/f.bin';
+      t.saved['/dl/f.bin'] = _body.sublist(0, 11);
+
+      m.resume(task.id);
+      await m.waitIdle();
+
+      expect(t.requestedOffsets, <int>[0]);
+      expect(task.received, _body.length);
+      expect(t.saved['/dl/f.bin'], _body);
+      expect(task.status, DownloadStatus.done);
+    });
+
+    test('206 Content-Range 起点不匹配时丢弃响应并全量重下', () async {
+      final _LengthAwareFakeTransport t = _LengthAwareFakeTransport(
+        files: <String, FakeFile>{_url: FakeFile(_body)},
+      )..rangeStartDelta = 1;
+      final DownloadManager m = _manager(t);
+      final DownloadTask task = m.enqueue(url: _url, siteId: 's', startPaused: true);
+      task.received = 12;
+      task.savePath = '/dl/f.bin';
+      t.saved['/dl/f.bin'] = _body.sublist(0, 12);
+
+      m.resume(task.id);
+      await m.waitIdle();
+
+      expect(t.requestedOffsets, <int>[12, 0]);
+      expect(task.received, _body.length);
+      expect(t.saved['/dl/f.bin'], _body);
+      expect(task.status, DownloadStatus.done);
+    });
+
+    test('流结束时实际长度不足已知总长度，不标记完成', () async {
+      final _LengthAwareFakeTransport t = _LengthAwareFakeTransport(
+        files: <String, FakeFile>{_url: FakeFile(_body)},
+        chunkSize: 4,
+      )
+        ..responseBodyLimit = 4
+        ..totalLengthOverride = _body.length;
+      final DownloadManager m = _manager(t, maxAttempts: 1);
+      final DownloadTask task = m.enqueue(url: _url, siteId: 's');
+      await m.waitIdle();
+
+      expect(task.status, DownloadStatus.failed);
+      expect(task.received, 4);
+      expect(task.total, _body.length);
+      expect(task.error, contains('总长度'));
+    });
+  });
+
   group('续传校验（If-Range）', () {
     test('续传时带上上次的 ETag；服务端没变就接着下', () async {
-      final FakeTransport t = FakeTransport(
+      final _LengthAwareFakeTransport t = _LengthAwareFakeTransport(
         files: <String, FakeFile>{_url: FakeFile(_body, etag: 'v1')},
       );
       final DownloadManager m = _manager(t);
@@ -219,7 +386,7 @@ void main() {
     });
 
     test('服务端文件已变（If-Range 不匹配）→ 回全量，从头重下，不拼坏文件', () async {
-      final FakeTransport t = FakeTransport(
+      final _LengthAwareFakeTransport t = _LengthAwareFakeTransport(
         files: <String, FakeFile>{_url: FakeFile(_body, etag: 'v2')},
       )..fileChanged = true;
       final DownloadManager m = _manager(t);
@@ -303,7 +470,7 @@ void main() {
     });
 
     test('暂停后继续：从断开处接着下', () async {
-      final FakeTransport t = FakeTransport(
+      final _LengthAwareFakeTransport t = _LengthAwareFakeTransport(
         files: <String, FakeFile>{_url: FakeFile(_body)},
         chunkSize: 1,
         chunkDelay: const Duration(milliseconds: 2),
@@ -325,6 +492,38 @@ void main() {
       expect(task.status, DownloadStatus.done);
       expect(t.saved['/dl/f.bin'], _body);
       expect(t.requestedOffsets, contains(pausedAt));
+    });
+
+    test('暂停恰逢旧尝试关流时，旧尝试不把状态改成完成', () async {
+      final _CloseGateTransport t = _CloseGateTransport(
+        files: <String, FakeFile>{_url: FakeFile(_body)},
+      );
+      final DownloadManager m = _manager(t);
+      final DownloadTask task = m.enqueue(url: _url, siteId: 's');
+
+      await t.closeStarted.future;
+      m.pause(task.id);
+      t.releaseClose.complete();
+      await m.waitIdle();
+
+      expect(task.status, DownloadStatus.paused);
+      expect(t.saved['/dl/f.bin'], _body);
+    });
+
+    test('取消恰逢旧尝试关流时，旧尝试不覆盖取消状态', () async {
+      final _CloseGateTransport t = _CloseGateTransport(
+        files: <String, FakeFile>{_url: FakeFile(_body)},
+      );
+      final DownloadManager m = _manager(t);
+      final DownloadTask task = m.enqueue(url: _url, siteId: 's');
+
+      await t.closeStarted.future;
+      await m.cancel(task.id);
+      t.releaseClose.complete();
+      await m.waitIdle();
+
+      expect(task.status, DownloadStatus.canceled);
+      expect(t.saved.containsKey('/dl/f.bin'), isFalse);
     });
 
     test('取消会删掉半截文件', () async {

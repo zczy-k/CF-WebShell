@@ -440,11 +440,19 @@ class ConfigFile {
     final Directory dir = file.parent;
     if (!dir.existsSync()) dir.createSync(recursive: true);
     final String text = const JsonEncoder.withIndent('  ').convert(config.toJson());
-    final File tmp = File('${file.path}.tmp');
-    tmp.writeAsStringSync(text, flush: true);
-    // Windows 上 rename 到已存在的文件会失败，先删目标。
-    if (file.existsSync()) file.deleteSync();
-    tmp.renameSync(file.path);
+    final Directory staging = dir.createTempSync('.starport-config-');
+    try {
+      final File tmp = File('${staging.path}${Platform.pathSeparator}config.json');
+      tmp.writeAsStringSync(text, flush: true);
+      // 同一文件系统内直接替换，避免先删旧档再提交的空窗。
+      tmp.renameSync(file.path);
+    } finally {
+      try {
+        staging.deleteSync(recursive: true);
+      } on FileSystemException {
+        // 清理失败不覆盖原始写入异常，也不改变已提交的结果。
+      }
+    }
   }
 }
 

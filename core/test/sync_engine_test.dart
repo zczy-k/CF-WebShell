@@ -55,6 +55,13 @@ class FakeCloud {
   /// 接下来的 N 次 PUT 强制回 409，并在每次顺便"让别的设备"改点东西。
   int forceConflicts = 0;
 
+  /// 可选的确定性冲突文档，用于构造特定的重合并结果。
+  SyncDoc? forcedConflictDoc;
+
+  /// PUT 屏障：测试可等待请求抵达，再编辑本地配置后放行响应。
+  Completer<void>? putReceived;
+  Completer<void>? releasePut;
+
   Future<void> close() => _server.close(force: true);
 
   Future<void> _handle(HttpRequest req) async {
@@ -73,7 +80,22 @@ class FakeCloud {
         final String text = await utf8.decoder.bind(req).join();
         final Map<String, dynamic> body = jsonDecode(text) as Map<String, dynamic>;
         final int baseV = body['baseV'] as int? ?? -1;
+        final Completer<void>? received = putReceived;
+        if (received != null) {
+          putReceived = null;
+          received.complete();
+          final Completer<void>? release = releasePut;
+          if (release != null) await release.future;
+          releasePut = null;
+        }
 
+        if (forcedConflictDoc != null) {
+          doc = forcedConflictDoc!.toJson();
+          forcedConflictDoc = null;
+          version++;
+          _json(req, <String, dynamic>{'ok': false, 'v': version, 'doc': doc}, 409);
+          return;
+        }
         if (forceConflicts > 0) {
           forceConflicts--;
           version++;
@@ -262,6 +284,35 @@ void main() {
     });
   });
 
+  group('409 后重验大面积删除护栏', () {
+    test('409 重合并出现大量删除时不再 PUT，也不改本机配置', () async {
+      final List<SiteProfile> initialSites = <SiteProfile>[
+        for (int i = 0; i < 6; i++) site('https://guard-$i.example.com', name: '站点$i'),
+      ];
+      final (config: config, engine: engine) = device(sites: initialSites);
+      await engine.runOnce();
+      final int callsBefore = cloud.putCalls;
+      final int versionBefore = engine.state.version;
+
+      config.sites.add(site('https://new.example.com', name: '本机新增'));
+      final SyncDoc conflictingRemote = SyncDoc.fromJson(cloud.doc);
+      final int deleteAt = DateTime.now().millisecondsSinceEpoch + 60000;
+      for (final String key in conflictingRemote.sites.keys.toList()) {
+        final SyncSite current = conflictingRemote.sites[key]!;
+        conflictingRemote.sites[key] =
+            SyncSite.tombstone(key, current.startUrl, deleteAt);
+      }
+      cloud.forcedConflictDoc = conflictingRemote;
+
+      final SyncRunResult result = await engine.runOnce();
+      expect(result.status, SyncStatus.needsConfirm);
+      expect(result.pendingRemovals, 6);
+      expect(config.sites.length, 7, reason: '护栏必须挡在 applyTo 之前');
+      expect(cloud.putCalls, callsBefore + 1, reason: '409 后不该再发第二次 PUT');
+      expect(engine.state.version, versionBefore, reason: '被拦下的合并不应记账');
+    });
+  });
+
   group('409 重试用尽', () {
     test('推失败时本地改动不能被静默吞掉（下一轮还能推上去）', () async {
       final (config: config, engine: engine) =
@@ -286,6 +337,47 @@ void main() {
       final SyncRunResult retry = await engine.runOnce();
       expect(retry.pushed, isTrue);
       expect(cloud.hasUrl(kUrlA), isTrue, reason: '本机改动最终必须到服务端，不能丢');
+    });
+  });
+
+  group('PUT 期间的本地编辑', () {
+    test('成功响应不能覆盖 PUT 发出后 markDirty 的较新配置', () async {
+      final (config: config, engine: engine) =
+          device(sites: <SiteProfile>[site(kUrlA, name: 'A')]);
+      await engine.runOnce();
+
+      config.sites.first.name = 'PUT 快照';
+      cloud.putReceived = Completer<void>();
+      cloud.releasePut = Completer<void>();
+      final Future<SyncRunResult> pending = engine.runOnce();
+      await cloud.putReceived!.future;
+
+      config.sites.first.name = 'PUT 期间的新编辑';
+      engine.markDirty();
+      cloud.releasePut!.complete();
+
+      final SyncRunResult result = await pending;
+      expect(result.pushed, isTrue);
+      expect(config.sites.first.name, 'PUT 期间的新编辑');
+      expect(
+        engine.state.local.sites[kUrlA]!.name,
+        'PUT 期间的新编辑',
+        reason: '较新快照必须留在本地状态里',
+      );
+      expect(
+        engine.state.local.contentHash(),
+        isNot(engine.state.base.contentHash()),
+        reason: '未被本次 PUT 覆盖的本地编辑要保持 dirty',
+      );
+      expect(
+        engine.state.version,
+        lessThan(cloud.version),
+        reason: '下一轮应重新拉取本次 PUT 接受的远端文档',
+      );
+
+      final SyncRunResult retry = await engine.runOnce();
+      expect(retry.pushed, isTrue);
+      expect(jsonEncode(cloud.doc), contains('PUT 期间的新编辑'));
     });
   });
 

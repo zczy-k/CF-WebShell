@@ -11,6 +11,7 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:starport_core/starport_core.dart';
 
 import 'src/app.dart';
+import 'src/desktop/hard_exit.dart';
 import 'src/desktop/single_instance.dart';
 import 'src/desktop/tray_controller.dart';
 import 'src/download_notifier.dart';
@@ -27,11 +28,15 @@ Future<void> main() async {
   // 唤醒旧窗口后立即退出 —— 多开会让各自的 WebView2 残留弹窗互相看不见
   // 对方进程系的清扫名单，正是"桌面点不动"Bug 的多开放大版（见
   // single_instance.dart / webview_window_guard.dart 的注释）。
+  //
+  // 重复启动曾在唤醒旧窗口后异常终止。此分支尚未加载用户状态，
+  // 使用 Windows 快速退出以避开常规插件卸载路径；具体崩溃根因仍待验证。
   if (!SingleInstanceGuard.instance.claim(
     windowTitle: branding.appName,
     appId: branding.appId,
   )) {
-    exit(0);
+    hardExit(0);
+    return;
   }
 
   final ShellState state = await ShellState.create(branding);

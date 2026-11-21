@@ -20,6 +20,8 @@
  */
 
 const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8' };
+const CORS_HEADERS = { 'access-control-allow-origin': '*' };
+const BODY_TOO_LARGE = Symbol('body-too-large');
 
 /* ------------------------------------------------------------------ */
 /* 小工具                                                              */
@@ -28,7 +30,7 @@ const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8' };
 function json(data, status = 200, extra) {
   return new Response(JSON.stringify(data), {
     status,
-    headers: extra ? { ...JSON_HEADERS, ...extra } : JSON_HEADERS,
+    headers: { ...CORS_HEADERS, ...JSON_HEADERS, ...(extra || {}) },
   });
 }
 
@@ -190,7 +192,7 @@ export default {
       return new Response(null, {
         status: 204,
         headers: {
-          'access-control-allow-origin': '*',
+          ...CORS_HEADERS,
           'access-control-allow-headers': 'authorization,content-type,x-bootstrap',
           'access-control-allow-methods': 'GET,POST,PUT,OPTIONS',
           'access-control-max-age': '86400',
@@ -392,7 +394,7 @@ async function handleGetDoc(env, device) {
 function parseDoc(text) {
   try {
     const v = JSON.parse(text || '{}');
-    return v && typeof v === 'object' ? v : null;
+    return v && typeof v === 'object' && !Array.isArray(v) ? v : null;
   } catch (e) {
     return null;
   }
@@ -437,20 +439,21 @@ async function handlePutDoc(request, env, device, now) {
     return fail('rate_limited', 429);
   }
 
-  const body = await readJson(request);
-  if (!body || typeof body !== 'object') return fail('bad_body', 400);
+  const maxBytes = Math.max(0, intEnv(env.MAX_DOC_BYTES, 524288));
+  // Bound the raw request too, while leaving room for the JSON envelope and formatting.
+  const maxRequestBytes = Math.min(Number.MAX_SAFE_INTEGER, maxBytes * 6 + 64 * 1024);
+  const body = await readJson(request, maxRequestBytes);
+  if (body === BODY_TOO_LARGE) return fail('too_large', 413);
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return fail('bad_body', 400);
 
   const baseV = Number.isFinite(body.baseV) ? body.baseV : -1;
   if (baseV < 0) return fail('bad_body', 400);
 
   const doc = body.doc;
-  if (!doc || typeof doc !== 'object') return fail('bad_body', 400);
+  if (!doc || typeof doc !== 'object' || Array.isArray(doc)) return fail('bad_body', 400);
 
   const text = JSON.stringify(doc);
-  const maxBytes = intEnv(env.MAX_DOC_BYTES, 524288);
-  if (text.length > maxBytes) {
-    // 用字符数近似字节数：站点清单全是 ASCII 为主，误差可以忽略，
-    // 而且这里只是防呆，不是精确计量。
+  if (new TextEncoder().encode(text).byteLength > maxBytes) {
     return fail('too_large', 413);
   }
 
@@ -615,10 +618,50 @@ async function handleRestore(request, env, device, now) {
 
 /* ------------------------------------------------------------------ */
 
-async function readJson(request) {
+async function readJson(request, maxBytes = Infinity) {
   try {
+    if (Number.isFinite(maxBytes)) {
+      const contentLength = request.headers.get('content-length');
+      if (/^\d+$/.test(contentLength || '') && Number(contentLength) > maxBytes) {
+        return BODY_TOO_LARGE;
+      }
+
+      if (request.body && typeof request.body.getReader === 'function') {
+        const reader = request.body.getReader();
+        const chunks = [];
+        let total = 0;
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          total += value.byteLength;
+          if (total > maxBytes) {
+            try {
+              await reader.cancel();
+            } catch (e) {
+              // The request is already rejected; cancellation failure is non-fatal.
+            }
+            return BODY_TOO_LARGE;
+          }
+          chunks.push(value);
+        }
+
+        const bytes = new Uint8Array(total);
+        let offset = 0;
+        for (const chunk of chunks) {
+          bytes.set(chunk, offset);
+          offset += chunk.byteLength;
+        }
+        const text = new TextDecoder().decode(bytes);
+        if (!text) return null;
+        return JSON.parse(text);
+      }
+    }
+
     const text = await request.text();
     if (!text) return null;
+    if (Number.isFinite(maxBytes) && new TextEncoder().encode(text).byteLength > maxBytes) {
+      return BODY_TOO_LARGE;
+    }
     return JSON.parse(text);
   } catch (e) {
     return null;

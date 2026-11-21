@@ -268,6 +268,11 @@ class SyncEngine {
   bool get busy => _busy;
   bool _busy = false;
 
+  /// Incremented whenever a local snapshot is refreshed. A PUT may be in flight
+  /// while the UI edits [config]; the revision prevents that older PUT result
+  /// from being applied over the newer local snapshot.
+  int _localRevision = 0;
+
   int _now() => DateTime.now().millisecondsSinceEpoch;
 
   /// 本机生成时间戳的基准：必须压过"从远端见过的最大 at"。
@@ -285,6 +290,7 @@ class SyncEngine {
   /// 界面上的增删改都可以只调这个然后去防抖，不必等网络。
   void markDirty() {
     state.local.refreshFromConfig(config, now: _clock());
+    _localRevision++;
   }
 
   /// 跑一轮完整同步。并发调用会被直接忽略（返回上一轮的结果）。
@@ -436,20 +442,28 @@ class SyncEngine {
     // 被重置、远端文档损坏被当成空…… 这一道不修任何具体 bug，它拦的是
     // "本机站点数要掉一半以上"这个**结果**，所以对将来新出现的 bug 一样有效。
     // 停一轮让人看一眼，比事后从历史版本里捞强得多。
-    final int beforeAlive = config.sites.length;
-    final int afterAlive = merged.doc.aliveSites.length;
-    final int willRemove = beforeAlive - afterAlive;
-    if (!_allowBigDelete && isBigDelete(beforeAlive, afterAlive, willRemove)) {
+    SyncRunResult? checkBigDeleteGuard(SyncMergeResult candidate) {
+      final int beforeAlive = config.sites.length;
+      final int afterAlive = candidate.doc.aliveSites.length;
+      final int willRemove = beforeAlive - afterAlive;
+      if (_allowBigDelete || !isBigDelete(beforeAlive, afterAlive, willRemove)) {
+        return null;
+      }
       // 什么都不写：不推、不改配置、不动 base/local。下一轮还会拦在这里，
       // 直到用户点"确认删除"或者自己把站点加回来。
       return SyncRunResult(
         status: SyncStatus.needsConfirm,
         message: '检测到一次大量删除（$willRemove 个站点），已暂停执行',
-        conflicts: merged.conflicts,
+        conflicts: candidate.conflicts,
         version: state.version,
         pendingRemovals: willRemove,
       );
     }
+
+    final SyncRunResult? initialGuard = checkBigDeleteGuard(merged);
+    if (initialGuard != null) return initialGuard;
+    int mergedLocalRevision = _localRevision;
+    String mergedLocalHash = state.local.contentHash();
 
     bool pushed = false;
     int finalVersion = remoteVersion;
@@ -462,8 +476,16 @@ class SyncEngine {
     // 内容一样的文档纯属浪费额度（D1 免费额度是按写行数算的）。
     if (dirty) {
       for (int attempt = 0; attempt < maxAttempts; attempt++) {
+        final int putRevision = _localRevision;
+        final String putConfigHash = _configHash(config);
         final SyncPutResult put =
             await _guard<SyncPutResult>(() => client.putDoc(merged.doc, remoteVersion));
+        // Normally the UI calls markDirty after editing. Also catch a config
+        // mutation without that notification so it is not lost on completion.
+        if (_localRevision != putRevision ||
+            _configHash(config) != putConfigHash) {
+          markDirty();
+        }
         if (put.ok) {
           pushed = true;
           finalVersion = put.version;
@@ -483,13 +505,27 @@ class SyncEngine {
           now: _clock(),
         );
         merged.doc.prune(now: _now());
+        mergedLocalRevision = _localRevision;
+        mergedLocalHash = state.local.contentHash();
+
+        // The remote document may turn a previously safe merge into a large
+        // deletion. Recheck before another PUT and before applying it locally.
+        final SyncRunResult? retryGuard = checkBigDeleteGuard(merged);
+        if (retryGuard != null) return retryGuard;
       }
     }
+
+    // A newer local snapshot may have arrived while the last PUT was pending.
+    // Keep current config/local and retain the pre-PUT remote base/version so
+    // the next run fetches the accepted document and merges the pending edit.
+    final bool preserveNewerLocal =
+        _localRevision != mergedLocalRevision &&
+        state.local.contentHash() != mergedLocalHash;
 
     // 5) 合并结果写回本机配置
     final String hashBefore = _configHash(config);
     merged.doc.spaceId = creds.spaceId;
-    merged.doc.applyTo(config);
+    if (!preserveNewerLocal) merged.doc.applyTo(config);
     final bool configChanged = _configHash(config) != hashBefore;
     if (configChanged) onConfigChanged?.call();
 
@@ -500,14 +536,19 @@ class SyncEngine {
     // 不再推，本机这几条改动就静静地丢了。改成记服务端版本，dirty 依然为真，
     // 下一轮（几十秒后）会带着新的远端再合一次再推。
     final bool pushFailed = dirty && !pushed;
-    state.base = pushFailed ? remoteLatest.copy() : merged.doc.copy();
-    state.local = merged.doc.copy();
-    state.version = pushed ? finalVersion : remoteVersion;
-    final int seen = merged.doc.maxAt;
+    state.base = pushFailed || preserveNewerLocal
+        ? remoteLatest.copy()
+        : merged.doc.copy();
+    if (!preserveNewerLocal) state.local = merged.doc.copy();
+    state.version =
+        pushed && !preserveNewerLocal ? finalVersion : remoteVersion;
+    final int mergedSeen = merged.doc.maxAt;
+    final int localSeen = state.local.maxAt;
+    final int seen = mergedSeen > localSeen ? mergedSeen : localSeen;
     if (seen > state.lastSeenAt) state.lastSeenAt = seen;
     final int now = _now();
     if (pushed) state.lastPushMs = now;
-    if (remoteAhead) state.lastPullMs = now;
+    if (remoteAhead && !preserveNewerLocal) state.lastPullMs = now;
     stateFile.save(state);
 
     return SyncRunResult(
@@ -516,11 +557,13 @@ class SyncEngine {
       conflicts: merged.conflicts,
       configChanged: configChanged,
       pushed: pushed,
-      pulled: remoteAhead || configChanged,
+      pulled: !preserveNewerLocal && (remoteAhead || configChanged),
       // 冲突重试用完了还没推上去：东西都在本机，下一轮会再试，别让用户以为丢了。
-      message: pushFailed
-          ? '别处改得太频繁，本机改动稍后重试'
-          : (pushed || remoteAhead ? '已同步' : ''),
+      message: preserveNewerLocal
+          ? '本机在推送期间有新改动，稍后重试'
+          : (pushFailed
+              ? '别处改得太频繁，本机改动稍后重试'
+              : (pushed || remoteAhead ? '已同步' : '')),
     );
   }
 
