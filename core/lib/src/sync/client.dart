@@ -214,7 +214,7 @@ HttpClient _newSharedHttpClient() => HttpClient()
   ..connectionTimeout = const Duration(seconds: 5)
   // Cloudflare 上跑的 Worker 不需要跟随重定向；跟了反而会把 Bearer 头
   // 带到别的主机上。
-  ..findProxy = (Uri _) => 'DIRECT';
+  ..findProxy = ((Uri _) => 'DIRECT');
 
 /// 真正的 HTTP 客户端。
 class SyncClient {
@@ -228,7 +228,9 @@ class SyncClient {
   static Future<void> closeSharedClient() async {
     final HttpClient dying = _sharedHttpClient;
     _sharedHttpClient = _newSharedHttpClient();
-    await dying.close();
+    // force：不等空闲连接。默认的优雅关闭要等到 keep-alive 超时（15 秒）才返回，
+    // 而它是每个用例 tearDown 里跑的 —— 那会把整份测试拖到超时。
+    await dying.close(force: true);
   }
 
   SyncClient(this.credentials, {this.timeout = const Duration(seconds: 15)});
