@@ -106,7 +106,7 @@ void main() {
     await cloud.close();
     // 同步请求现在共用一个 HttpClient（连接池跟着进程走）。假云端关掉后
     // 它的临时端口会被下一个用例复用，池里那条空闲连接不能带过去。
-    await SyncClient.closeSharedClient();
+    SyncClient.closeSharedClient();
     try {
       dir.deleteSync(recursive: true);
     } catch (_) {}

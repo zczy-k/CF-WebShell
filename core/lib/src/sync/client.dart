@@ -225,12 +225,13 @@ class SyncClient {
   /// 关掉自己起的假云端并释放端口，而**端口会被下一个用例复用** —— 连接池里
   /// 那条"指向已经关掉的服务器"的空闲连接不能带过去。用例的 tearDown 调一次，
   /// 每个用例都从干净连接池开始。
-  static Future<void> closeSharedClient() async {
+  static void closeSharedClient() {
     final HttpClient dying = _sharedHttpClient;
     _sharedHttpClient = _newSharedHttpClient();
-    // force：不等空闲连接。默认的优雅关闭要等到 keep-alive 超时（15 秒）才返回，
-    // 而它是每个用例 tearDown 里跑的 —— 那会把整份测试拖到超时。
-    await dying.close(force: true);
+    // force = 立刻断开，不等 keep-alive 空闲连接超时（那是 15 秒）。
+    // `HttpClient.close()` 本身是同步 void（返回 Future 的是 HttpServer.close），
+    // 所以这里没有 await，也不需要。
+    dying.close(force: true);
   }
 
   SyncClient(this.credentials, {this.timeout = const Duration(seconds: 15)});
