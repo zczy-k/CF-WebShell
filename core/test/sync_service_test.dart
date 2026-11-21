@@ -6,6 +6,9 @@
 /// * 用户连着改五次，是不是只推了一轮（防抖漏掉 = 五次请求烧额度）
 /// * 一直没变化，有没有真的放慢（降频降不回来 = 挂一天就吃掉几百次请求）
 /// * 一旦有变化，是不是立刻回到快节奏（回不来 = 改了十分钟对面才看到）
+/// * 连着连不上网，有没有越撞越慢（固定 60 秒撞几小时 = 唯一还在无意义耗电的地方）
+/// * 凭证失效有没有停表，同时手动那一枪还发得出去（重试没用，但用户点的那一下要有反应）
+/// * 退出时能不能有上限地等一轮（无上限 = 点关闭变成"程序没响应"）
 /// * dispose 之后定时器还在不在跑（还在跑 = 退出时抛 use-after-dispose）
 /// * run 抛异常，会不会冒出未捕获异常（冒出 = 整轮同步静默失效）
 library;
@@ -53,6 +56,11 @@ void main() {
     Duration pollSlow = const Duration(seconds: 30),
     Duration resumeThrottle = const Duration(seconds: 30),
     int slowAfterUnchanged = 10,
+    List<Duration> retryBackoff = const <Duration>[
+      Duration(milliseconds: 40),
+      Duration(milliseconds: 200),
+      Duration(seconds: 5),
+    ],
     required Future<SyncRunResult> Function() runner,
   }) {
     final ShellConfig config = enabled
@@ -65,6 +73,7 @@ void main() {
       pollSlow: pollSlow,
       resumeThrottle: resumeThrottle,
       slowAfterUnchanged: slowAfterUnchanged,
+      retryBackoff: retryBackoff,
       runner: runner,
     );
     addTearDown(svc.dispose);
@@ -122,6 +131,119 @@ void main() {
       svc.markDirty(); // 纯内存折进 local，不联网
       expect(svc.pending, isTrue);
     });
+
+    test('防抖那一枪撞上在跑的一轮：本轮跑完补一枪', () async {
+      final Completer<void> gate = Completer<void>();
+      int runs = 0;
+      final SyncService svc = make(
+        debounce: const Duration(milliseconds: 20),
+        // 轮询间隔放到很久：这一枪必须是"补防抖"补出来的，不能是轮询顺手跑的。
+        pollFast: const Duration(seconds: 30),
+        runner: () async {
+          runs++;
+          if (runs == 1) await gate.future; // 第一轮卡在门上 = busy
+          return quiet();
+        },
+      );
+
+      final Future<SyncRunResult> first = svc.syncNow();
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      svc.markDirty(); // 用户改完东西，排 20ms 防抖
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      expect(runs, 1, reason: 'busy 期间不叠第二轮');
+
+      gate.complete();
+      await first;
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      // 旧行为：这一枪被 busy 吞掉就再也没有然后了，改动要等下一轮轮询才推得出去
+      //（默认档最坏 10 分钟）。界面承诺的是 8 秒。
+      expect(runs, 2, reason: '被吞掉的防抖要在跑完的那一轮之后补上');
+    });
+  });
+
+  group('失败退避', () {
+    test('连不上网越撞越慢，不再每 20 毫秒撞一次墙', () async {
+      int runs = 0;
+      final SyncService svc = make(
+        // 老的断网行为是照 pollFast 一直撞：这里故意把 pollFast 压到 20ms，
+        // 没有独立阶梯的话 160ms 里能撞七八次。
+        pollFast: const Duration(milliseconds: 20),
+        pollSlow: const Duration(seconds: 5),
+        slowAfterUnchanged: 2,
+        retryBackoff: const <Duration>[
+          Duration(milliseconds: 40),
+          Duration(milliseconds: 200),
+          Duration(seconds: 5),
+        ],
+        runner: () async {
+          runs++;
+          return const SyncRunResult(status: SyncStatus.offline, message: '连不上');
+        },
+      );
+
+      svc.start(delay: Duration.zero);
+      await Future<void>.delayed(const Duration(milliseconds: 160));
+      expect(runs, 2, reason: '第一次失败后等 40ms，第二次失败后要等 200ms');
+      expect(svc.retryStreak, 2);
+      expect(svc.unchangedPolls, 0,
+          reason: '网通了要立刻回到正常节奏，降频计数不能背着走');
+      expect(svc.nextPollIn, const Duration(milliseconds: 200));
+
+      await Future<void>.delayed(const Duration(milliseconds: 240));
+      expect(runs, 3);
+      expect(svc.retryStreak, 3);
+      expect(svc.nextPollIn, const Duration(seconds: 5), reason: '阶梯封顶，之后不再变短');
+    });
+
+    test('网络恢复后回到正常阶梯（背着失败计数跑是不对的）', () async {
+      bool broken = true;
+      final SyncService svc = make(
+        pollFast: const Duration(milliseconds: 20),
+        slowAfterUnchanged: 2,
+        retryBackoff: const <Duration>[Duration(seconds: 5)],
+        runner: () async => broken
+            ? const SyncRunResult(status: SyncStatus.offline, message: '连不上')
+            : const SyncRunResult(status: SyncStatus.ok, pushed: true),
+      );
+
+      await svc.syncNow();
+      expect(svc.retryStreak, 1);
+      expect(svc.nextPollIn, const Duration(seconds: 5));
+
+      broken = false;
+      await svc.syncNow();
+      expect(svc.retryStreak, 0);
+      expect(svc.nextPollIn, const Duration(milliseconds: 20),
+          reason: '通了之后该立刻回到最快档，别把上一次断网的账继续算');
+    });
+
+    test('凭证失效直接停表；重新配对那一轮把表放回来', () async {
+      bool paired = false;
+      int runs = 0;
+      final SyncService svc = make(
+        pollFast: const Duration(milliseconds: 20),
+        slowAfterUnchanged: 2,
+        runner: () async {
+          runs++;
+          return paired
+              ? quiet()
+              : const SyncRunResult(status: SyncStatus.authFailed, message: '还没配对');
+        },
+      );
+
+      svc.start(delay: Duration.zero);
+      await Future<void>.delayed(const Duration(milliseconds: 120));
+      expect(runs, 1, reason: '401 不会因为再问一次变成 200，多发只是多一条错误');
+      expect(svc.haltedForAuth, isTrue);
+      expect(svc.nextPollIn, isNull);
+
+      // 用户去重新配对 / 点了「立即同步」：停表只停自动轮询，手动那一枪照发。
+      paired = true;
+      await svc.syncNow(manual: true);
+      expect(runs, 2);
+      expect(svc.haltedForAuth, isFalse);
+      expect(svc.nextPollIn, const Duration(milliseconds: 20));
+    });
   });
 
   group('轮询节奏', () {
@@ -164,24 +286,6 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 160));
 
       expect(runs, greaterThanOrEqualTo(4), reason: '一直有变化就不该降频');
-      expect(svc.unchangedPolls, 0);
-    });
-
-    test('出错也回到快节奏（要尽快重试）', () async {
-      int runs = 0;
-      final SyncService svc = make(
-        pollFast: const Duration(milliseconds: 20),
-        pollSlow: const Duration(seconds: 5),
-        slowAfterUnchanged: 2,
-        runner: () async {
-          runs++;
-          return const SyncRunResult(status: SyncStatus.offline, message: '连不上');
-        },
-      );
-
-      svc.start(delay: Duration.zero);
-      await Future<void>.delayed(const Duration(milliseconds: 160));
-      expect(runs, greaterThanOrEqualTo(4));
       expect(svc.unchangedPolls, 0);
     });
 
@@ -359,6 +463,51 @@ void main() {
       final SyncRunResult again = await svc.syncNow(manual: true);
       expect(again.awaitingConfirm, isTrue, reason: '确认只对一次有效，不能变成永久放行');
       expect(runs, 1, reason: '第二轮回到了普通 runner，说明放行标记没被带过去');
+    });
+  });
+
+  group('退出前补一轮', () {
+    test('没有待推送的改动：立刻返回，一个请求都不发', () async {
+      int runs = 0;
+      final SyncService svc = make(runner: () async {
+        runs++;
+        return quiet();
+      });
+
+      await svc.flushForQuit(const Duration(seconds: 2));
+      expect(runs, 0, reason: '没改动还等一轮 = 白白让退出慢一拍');
+    });
+
+    test('有改动：推一轮再走', () async {
+      int runs = 0;
+      final SyncService svc = make(runner: () async {
+        runs++;
+        return quiet();
+      });
+      svc.markDirty();
+
+      await svc.flushForQuit(const Duration(seconds: 2));
+      expect(runs, 1);
+    });
+
+    test('卡住的轮次不能把退出拖住：到预算就放人', () async {
+      final SyncService svc = make(
+        // 一轮要 300ms，预算只有 30ms —— 到点就该放手，不管这一轮后来怎样。
+        runner: () => Future<SyncRunResult>.delayed(
+              const Duration(milliseconds: 300),
+              quiet,
+            ),
+      );
+      svc.markDirty();
+
+      final int startMs = DateTime.now().millisecondsSinceEpoch;
+      await svc.flushForQuit(const Duration(milliseconds: 30));
+      final int spent = DateTime.now().millisecondsSinceEpoch - startMs;
+      expect(spent, lessThan(150),
+          reason: '退出路径上的等待必须有死上限：桌面那边 5 秒就硬切，'
+              '一个卡住的请求会把"点关闭"变成用户眼里的"程序没响应"');
+      expect(svc.pending, isTrue,
+          reason: '超时只是不再等它，不是把改动丢了 —— 下次启动第一轮同步照样会推');
     });
   });
 }

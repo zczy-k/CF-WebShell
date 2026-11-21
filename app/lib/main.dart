@@ -70,7 +70,13 @@ Future<void> main() async {
       hideToTray: () => state.config.closeToTray,
       // 真退出前同步落盘：配置与下载记录都是 400ms 防抖写，退出路径上的
       // 300ms 硬切可能抢在落盘前 —— 这里 flush 一次，最后的改动不丢。
+      //
+      // 同步放在落盘之前：这一轮要是从云端拉回了新内容，它会直接写进 config，
+      // 紧接着的 saveNow 才能把合并结果一起存下来（反过来就是先存了个旧版本）。
+      // 2 秒是死上限 —— _quit 里 5 秒就 hardExit，网络卡住的轮次绝不能把
+      // "点关闭"拖成"程序没响应"。等不到就放弃：改动留在本地，下次启动补推。
       onBeforeQuit: () async {
+        await state.flushSyncForQuit(const Duration(seconds: 2));
         state.saveNow();
         state.saveDownloadsNow();
       },

@@ -765,6 +765,18 @@ class ShellState extends ChangeNotifier {
     return s.syncNow(manual: true);
   }
 
+  /// 退出前补一轮同步：最多等 [budget]，等不到就走。
+  ///
+  /// 只有"手上确实还有没推上去的改动"时才等（多数退出是零成本直接返回）。
+  /// 上限必须是死的：桌面那条路从"点关闭"到硬切只有 5 秒，一个卡住的请求
+  /// 会把"退出"变成用户眼里的"程序没响应"。超时的话改动留在本地，
+  /// 下次启动第一轮同步照样会推上去 —— 不会丢，只是晚一点。
+  Future<void> flushSyncForQuit(Duration budget) async {
+    final SyncService? s = sync;
+    if (s == null) return;
+    await s.flushForQuit(budget);
+  }
+
   /// 断开同步：清凭证、关开关，但**保留本地缓存**（再打开时能接着合并）。
   Future<void> syncDisconnect() async {
     await sync?.engine.disconnect();
