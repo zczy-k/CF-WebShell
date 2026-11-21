@@ -76,6 +76,17 @@ class ShellState extends ChangeNotifier {
 
   final Map<String, _BlobSession> _blobs = <String, _BlobSession>{};
 
+  /// 本机已经**试过**抓图标的站点 id（见 [_topUpIcons]）。
+  ///
+  /// 一次会话只试一次：抓不到图标的站点多半本来就没有可抓的图标（或者在墙内、
+  /// 需要登录才给）。不设这个闸门的话，每次拉取都重跑一遍失败请求，跟着轮询
+  /// 每分钟打几个 404 —— 那是纯浪费，用户那边看到的还是首字母方块。
+  /// 手动「重新抓取图标」不走这里，随时能重试。
+  final Set<String> _iconAttempted = <String>{};
+
+  /// 补抓图标正在跑（同一时刻只允许一趟，别让两轮同步各开一份请求）。
+  bool _iconTopupRunning = false;
+
   /// blob 通道的进度广播节流表（key → 上次广播时刻），见 [onBlobData]。
   final Map<String, int> _blobLastNotifyMs = <String, int>{};
   Timer? _configTimer;
@@ -422,7 +433,7 @@ class ShellState extends ChangeNotifier {
     );
   }
 
-  /// 合并结果已经写进 [config]：存盘 + 刷新界面。
+  /// 合并结果已经写进 [config]：存盘 + 刷新界面 + 把图标补齐。
   ///
   /// 全程把 [_writingRemote] 立起来 —— 这期间任何"配置变了 → 待同步"的路径都要
   /// 让路，否则会把刚拉下来的东西当成新改动推回去，两台设备开始乒乓。
@@ -436,6 +447,41 @@ class ShellState extends ChangeNotifier {
       _writingRemote = false;
     }
     notifyListeners();
+    // 刚拉回来的站点在本机没有图标（图标文件路径是本机缓存，不进同步文档，
+    // 见 core 的 SyncSite.applyToProfile），界面只能退化成首字母方块 ——
+    // 站点地址是同步过来的，本机照着地址抓一次就是了。手动「重新抓取图标」
+    // 一直有效，缺的只是这一步自动化。
+    //
+    // 不 await：这些请求要联网，压在同步这一轮上等于让每一轮多等几个站点的
+    // 图标时间；抓完各自会 notifyListeners，界面自己会换过来。
+    unawaited(_topUpIcons());
+  }
+
+  /// 给"本机还没有可用图标"的站点各抓一次图标。
+  ///
+  /// 顺序抓，一个抓完再抓下一个：这些请求打的是用户自己加的站点，并发十几路
+  /// 容易被当成爬虫，也会在同一时刻把界面刷个没完。
+  ///
+  /// 每个站点一次会话只试一次（[_iconAttempted]）：抓不到多半是站点本来就没有
+  /// 可抓的图标，不设闸门就会跟着轮询每分钟重打一遍注定失败的请求。
+  Future<void> _topUpIcons() async {
+    if (_iconTopupRunning) return;
+    _iconTopupRunning = true;
+    try {
+      // 先快照：循环里有 await，期间用户完全可能加/删站点，直接遍历活列表会炸。
+      final List<SiteProfile> snapshot = List<SiteProfile>.of(config.sites);
+      for (final SiteProfile site in snapshot) {
+        if (_iconAttempted.contains(site.id)) continue;
+        final String? path = site.iconPath;
+        if (path != null && path.isNotEmpty && File(path).existsSync()) continue;
+        _iconAttempted.add(site.id);
+        await refreshIcon(site);
+      }
+    } catch (_) {
+      // 补图标是锦上添花：任何一步出问题都不该把同步或界面带坏。
+    } finally {
+      _iconTopupRunning = false;
+    }
   }
 
   void _touchSync() {
