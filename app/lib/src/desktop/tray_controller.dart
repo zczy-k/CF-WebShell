@@ -283,8 +283,10 @@ class TrayController with TrayListener, WindowListener {
     _quitting = true;
 
     _resyncDebounce?.cancel();
-    // 只设一个兜底；正常关闭会自行结束进程，无需再安排短延时强退。
-    Timer(const Duration(seconds: 5), () => hardExit(0));
+    windowManager.removeListener(this);
+    trayManager.removeListener(this);
+    // 超时强退不是正常关窗；用非零退出码，避免回归测试误判成功。
+    Timer(const Duration(seconds: 5), () => hardExit(1));
 
     // 先落盘再拆窗口：配置与下载记录在退出路径上同步 flush。
     try {

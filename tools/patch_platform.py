@@ -407,8 +407,63 @@ def patch_windows_window_messages(path: pathlib.Path) -> None:
     patched, count = re.subn(pattern, lambda m: m[0] + guard, source)
     if count != 1:
         raise RuntimeError(f"Expected one FlutterWindow::MessageHandler in {path}")
+
+    old_destroy = """  if (flutter_controller_) {
+    flutter_controller_ = nullptr;
+  }
+
+  Win32Window::OnDestroy();"""
+    new_destroy = """  // Clear the member before native destruction can dispatch more messages.
+  auto controller = std::move(flutter_controller_);
+  controller.reset();
+  Win32Window::OnDestroy();"""
+    old_fonts = "      flutter_controller_->engine()->ReloadSystemFonts();"
+    new_fonts = """      if (flutter_controller_ && flutter_controller_->engine()) {
+        flutter_controller_->engine()->ReloadSystemFonts();
+      }"""
+    if patched.count(old_destroy) != 1 or patched.count(old_fonts) != 1:
+        raise RuntimeError(f"Unexpected FlutterWindow teardown template in {path}")
+    patched = patched.replace('#include <optional>', '#include <optional>\n#include <utility>', 1)
+    patched = patched.replace(old_destroy, new_destroy).replace(old_fonts, new_fonts)
     path.write_text(patched, encoding="utf-8")
     print("已改：", path)
+
+
+def patch_windows_runner_lifetime(source: str) -> str:
+    marker = "// Starport: release the runner before uninitializing COM."
+    if marker in source:
+        return source
+    pattern = (
+        r"(?m)^  ::CoInitializeEx\(nullptr, COINIT_APARTMENTTHREADED\);\n\n"
+        r"(  flutter::DartProject project\(L\"data\"\);\n[\s\S]*?)"
+        r"^  ::CoUninitialize\(\);\n  return EXIT_SUCCESS;"
+    )
+
+    def wrap(match: re.Match[str]) -> str:
+        body = match[1].rstrip()
+        old_loop = "while (::GetMessage(&msg, nullptr, 0, 0))"
+        if body.count(old_loop) != 1:
+            raise RuntimeError("Unexpected Flutter runner message loop")
+        body = body.replace(old_loop, "BOOL result;\n  while ((result = ::GetMessage(&msg, nullptr, 0, 0)) > 0)")
+        body = "\n".join("  " + line if line else "" for line in body.splitlines())
+        return (
+            "  const HRESULT com = ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);\n"
+            "  if (FAILED(com)) return EXIT_FAILURE;\n\n"
+            f"  {marker}\n"
+            "  const int exit_code = []() -> int {\n"
+            f"{body}\n"
+            "    return result == -1 ? EXIT_FAILURE : EXIT_SUCCESS;\n"
+            "  }();\n"
+            "  ::OutputDebugStringW(L\"Starport: Runner released; uninitializing COM\\n\");\n"
+            "  ::CoUninitialize();\n"
+            "  ::OutputDebugStringW(L\"Starport: COM released; returning from wWinMain\\n\");\n"
+            "  return exit_code;"
+        )
+
+    patched, count = re.subn(pattern, wrap, source)
+    if count != 1:
+        raise RuntimeError("Unexpected Flutter runner COM lifetime template")
+    return patched
 
 
 def patch_windows(dir_path: str, app_name: str) -> None:
@@ -420,7 +475,7 @@ def patch_windows(dir_path: str, app_name: str) -> None:
 
     main = d / "runner" / "main.cpp"
     if main.exists():
-        s = main.read_text(encoding="utf-8")
+        s = patch_windows_runner_lifetime(main.read_text(encoding="utf-8"))
         s2, n = re.subn(r'(window\.Create\(\s*L")[^"]*(")', lambda m: m.group(1) + escaped + m.group(2), s, count=1)
         if n == 0:
             s2, n = re.subn(r'L"[^"]*"', 'L"%s"' % escaped, s, count=1)

@@ -874,6 +874,8 @@ jobs:
             $dir = Join-Path $env:RUNNER_TEMP "starport-startup-$attempt"
             Expand-Archive -LiteralPath $zip.FullName -DestinationPath $dir
             $exe = Get-ChildItem -LiteralPath $dir -Filter *.exe -File | Select-Object -First 1
+            $data = New-Item -ItemType Directory -Path (Join-Path $dir 'data-user')
+            Set-Content -LiteralPath (Join-Path $data.FullName 'starport.json') -Encoding utf8NoBOM -Value '{"version":1,"sites":[],"closeToTray":false,"syncEnabled":false}'
             $p = Start-Process -FilePath $exe.FullName -WorkingDirectory $dir -PassThru
             try {
               $clock = [Diagnostics.Stopwatch]::StartNew()
@@ -887,7 +889,10 @@ jobs:
               $p.Refresh()
               if ($p.HasExited) { throw ('Launch {0} crashed after showing: 0x{1:X8}' -f $attempt, $p.ExitCode) }
               if (-not $p.Responding) { throw "Launch $attempt window is unresponsive" }
-              Write-Host "Launch $attempt passed"
+              if (-not $p.CloseMainWindow()) { throw "Launch $attempt could not request normal close" }
+              if (-not $p.WaitForExit(12000)) { throw "Launch $attempt hung during shutdown" }
+              if ($p.ExitCode -ne 0) { throw ('Launch {0} failed during shutdown: 0x{1:X8}' -f $attempt, $p.ExitCode) }
+              Write-Host "Launch and shutdown $attempt passed"
             } finally {
               if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force }
               if (-not $p.WaitForExit(5000)) { throw "Launch $attempt process did not exit" }
