@@ -37,6 +37,14 @@ import 'webview_window_guard.dart';
 ///   恒回 `HTNOWHERE`，覆盖区域的鼠标点击被**静默吞掉**（最大化后收托盘
 ///   = 整个桌面点不动即由此而来）。所以：所有让宿主不可见的路径补一次
 ///   `hideOrphaned()`，所有让宿主重新可见的路径补一次 `showSwept()`。
+/// * **退出收尾（[_quit]）**：收割 WebView2 子进程树 → 关窗 → 硬切进程。
+///   最后一步必须走 TerminateProcess，**不能把控制权交回 CRT**：从 wWinMain
+///   返回会走 ExitProcess，它在持着装载器锁的状态下逐个调用插件 DLL 的
+///   DllMain(DLL_PROCESS_DETACH)，而 inappwebview 的 detach 等的正是刚被
+///   杀掉的那个消息泵线程 → 约 20s 后装载器死锁看门狗 fail-fast
+///   0xC0000409，就是「快速异常检测失败」弹框。Runner 侧的同一处收尾也已
+///   改成硬切（tools/patch_platform.py 的 patch_windows_runner_lifetime），
+///   两条退出路径都不再经过 DLL detach。
 /// * **历史教训（不许回潮）**：**绝对不要调 `windowManager.setSkipTaskbar()`**。
 ///   window_manager 的 Windows 插件在这个方法里用构造期缓存的 `ITaskbarList*`；
 ///   该指针没建起来时为 NULL，方法内没有判空，一调用就 `mov rax,[rcx]` 读
@@ -79,6 +87,9 @@ class TrayController with TrayListener, WindowListener {
 
   bool _started = false;
   bool _quitting = false;
+
+  /// 退出路径上窗口是否真的关掉了（决定收尾退出码：关掉 = 0，没关掉 = 1）。
+  bool _windowClosed = false;
 
   /// rect 对账防抖：手拖窗口边缘/标题栏时 onWindowResize/onWindowMove
   /// 每帧都来，对账一次要打进程快照 + 全桌面窗口枚举，合并成 250ms
@@ -306,17 +317,40 @@ class TrayController with TrayListener, WindowListener {
     } catch (_) {
       // 退出路径上任何托盘问题都不该挡住退出本身。
     }
+    // WebView2 子进程树必须在**关窗之前**收掉：windowManager.close() 走
+    // WM_CLOSE → Runner 的 OnDestroy 里 controller.reset() 会把引擎连同
+    // Dart VM 一起拆掉，那之后的代码根本回不到 Dart。放在这里才保证执行得到。
+    // （Chromium 本来就按"随时会被杀"设计，cookie 落盘自有 crash-safe 兜底；
+    // 漏收的代价是 msedgewebview2.exe 孤儿，见 killDescendants 的注释。）
+    try {
+      WebViewWindowGuard.instance.killDescendants();
+    } catch (_) {}
     try {
       if (Platform.isWindows) {
         // Windows 插件的 destroy() 直接投递 WM_QUIT。走正常 WM_CLOSE，
         // 让 Runner 在消息循环退出、COM 反初始化之前销毁 Flutter/WebView。
         await windowManager.setPreventClose(false);
         await windowManager.close();
+        _windowClosed = true;
       } else {
         await windowManager.destroy();
+        _windowClosed = true;
       }
     } catch (_) {
       // 插件调用失败时，仍由已启动的退出计时器兜底。
     }
+
+    // 走到这里，进程只剩一种收尾方式：TerminateProcess，**绝不把控制权交回
+    // CRT**。从 wWinMain 返回会走 ExitProcess —— 杀掉其它线程、持着装载器锁
+    // 逐个调用插件 DLL 的 DllMain(DLL_PROCESS_DETACH)，而 inappwebview 的
+    // detach 等的正是刚被杀掉的那个消息泵线程 → 装载器死锁看门狗约 20s 后
+    // fail-fast 0xC0000409，就是用户看到的「快速异常检测失败」弹框。
+    //
+    // 正常情况下上面那行 await 不会返回（引擎已随 OnDestroy 拆掉），进程由
+    // Runner 末尾的同款硬切结束（tools/patch_platform.py 的
+    // patch_windows_runner_lifetime）；这一行只在插件先回执、Dart 还活着的
+    // 时序下才走到，两条路都不再经过 DLL detach。落盘已在 onBeforeQuit 完成。
+    // 关窗没成功就不是正常退出：非零码，别让回归测试把强退当成优雅关闭。
+    hardExit(_windowClosed ? 0 : 1);
   }
 }

@@ -362,8 +362,9 @@ class WebViewWindowGuard {
   }
 
   /// 进程级收尸：把本进程系下所有 `msedgewebview2.exe` 硬杀掉，返回杀掉的
-  /// 个数。**只在退出路径上调用**（`tray_controller.dart` 的 `_quit`，在
-  /// `windowManager.destroy()` 之后、`exit(0)` 之前）。
+  /// 个数。**只在退出路径上调用**（`tray_controller.dart` 的 `_quit`，排在
+  /// `windowManager.close()` **之前** —— 关窗会把引擎连同 Dart VM 一起拆掉，
+  /// 之后的 Dart 代码再也回不来，放后面等于不执行）。
   ///
   /// **为什么需要它**：`destroy()` 返回 ≠ WebView2 已退 —— 引擎优雅关闭 +
   /// WebView2 子进程树自己退要 0.5~2s，而 Chromium 的 browser 进程有把自己

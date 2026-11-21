@@ -29,8 +29,11 @@ Future<void> main() async {
   // 对方进程系的清扫名单，正是"桌面点不动"Bug 的多开放大版（见
   // single_instance.dart / webview_window_guard.dart 的注释）。
   //
-  // 重复启动曾在唤醒旧窗口后异常终止。此分支尚未加载用户状态，
-  // 使用 Windows 快速退出以避开常规插件卸载路径；具体崩溃根因仍待验证。
+  // 重复启动曾在唤醒旧窗口后弹「快速异常检测失败」(0xC0000409)：那时走的是
+  // exit(0) —— CRT 收尾会持装载器锁逐个调用插件 DLL 的 DllMain(DETACH)，
+  // inappwebview 的 detach 等的正是刚被 ExitProcess 杀掉的线程，死锁看门狗
+  // 约 20s 后 fail-fast。此分支尚未加载用户状态，直接用 Windows 硬切跳过
+  // DLL 收尾（机理与退出路径同源，见 TrayController._quit）。
   if (!SingleInstanceGuard.instance.claim(
     windowTitle: branding.appName,
     appId: branding.appId,

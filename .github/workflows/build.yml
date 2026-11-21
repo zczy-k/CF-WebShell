@@ -899,6 +899,41 @@ jobs:
             }
           }
 
+      # 重复启动（第二实例）曾在唤醒旧窗口后弹「快速异常检测失败」0xC0000409：
+      # 那时走 exit(0) → CRT/ExitProcess → 插件 DLL 的 DllMain(DETACH) 里等
+      # 一个已被杀掉的线程，装载器死锁看门狗约 20s 后 fail-fast。
+      # 现在第二实例必须硬切退出：退出码 0、10s 内结束、旧进程还活着。
+      - name: Windows 重复启动回归
+        if: github.event_name == 'push'
+        shell: pwsh
+        run: |
+          $zip = Get-ChildItem "$env:RUNNER_TEMP\starport-windows-*.zip" -File | Select-Object -First 1
+          if (-not $zip) { throw 'Missing Windows package' }
+          $dir = Join-Path $env:RUNNER_TEMP 'starport-dual-launch'
+          Expand-Archive -LiteralPath $zip.FullName -DestinationPath $dir
+          $exe = Get-ChildItem -LiteralPath $dir -Filter *.exe -File | Select-Object -First 1
+          $data = New-Item -ItemType Directory -Path (Join-Path $dir 'data-user')
+          Set-Content -LiteralPath (Join-Path $data.FullName 'starport.json') -Encoding utf8NoBOM -Value '{"version":1,"sites":[],"closeToTray":false,"syncEnabled":false}'
+          $first = Start-Process -FilePath $exe.FullName -WorkingDirectory $dir -PassThru
+          try {
+            $clock = [Diagnostics.Stopwatch]::StartNew()
+            do {
+              Start-Sleep -Milliseconds 100
+              $first.Refresh()
+              if ($first.HasExited) { throw ('First instance exited: 0x{0:X8}' -f $first.ExitCode) }
+            } until ($first.MainWindowHandle -ne 0 -or $clock.Elapsed.TotalSeconds -ge 20)
+            if ($first.MainWindowHandle -eq 0) { throw 'First instance produced no window' }
+            $second = Start-Process -FilePath $exe.FullName -WorkingDirectory $dir -PassThru
+            if (-not $second.WaitForExit(10000)) { throw 'Second instance still alive after 10s (fail-fast path)' }
+            if ($second.ExitCode -ne 0) { throw ('Second instance exited: 0x{0:X8}' -f $second.ExitCode) }
+            $first.Refresh()
+            if ($first.HasExited) { throw 'Second instance killed the first one' }
+            Write-Host 'Dual launch passed'
+          } finally {
+            if (-not $first.HasExited) { Stop-Process -Id $first.Id -Force }
+            if (-not $first.WaitForExit(5000)) { throw 'First instance did not exit' }
+          }
+
       # 同 Android job 里的说明：原始日志要登录才能看，注解免登录可读，
       # 所以失败时把诊断日志尾部打成注解。
       # 上面几个步骤都做了 tee（先 $ErrorActionPreference='Continue' 再用

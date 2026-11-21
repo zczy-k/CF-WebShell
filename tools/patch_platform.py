@@ -21,6 +21,17 @@ import sys
 # 微软在 STL1011 报错里给出的逃生宏（见 patch_windows_cmake 的说明）
 _COROUTINE_SILENCE_MACRO = "_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS"
 
+# 注进 main.cpp 收尾处的说明（纯 ASCII：中文注释进 C++ 源码有 rc.exe/MSVC
+# 编码解释不一致的风险，见 patch_windows 里窗口标题转 \uXXXX 的同款处理）。
+_NO_CRT_SHUTDOWN_COMMENT = """  // Starport: hand the exit code straight to the OS, never back to the CRT.
+  // Returning from wWinMain runs ExitProcess, which kills every other thread,
+  // takes the loader lock and then calls DllMain(DLL_PROCESS_DETACH) for each
+  // plugin DLL. flutter_inappwebview_windows blocks in that detach, waiting on
+  // a message pump ExitProcess already destroyed, and the loader deadlock
+  // watchdog fail-fasts ~20s later with 0xC0000409 ("Fast Exception Detection
+  // Failure"). TerminateProcess skips the detach round trip entirely.
+"""
+
 
 def _force_utf8_output() -> None:
     """让本脚本的中文输出在 Windows 上也能打印出来。
@@ -456,7 +467,8 @@ def patch_windows_runner_lifetime(source: str) -> str:
             "  }();\n"
             "  ::OutputDebugStringW(L\"Starport: Runner released; uninitializing COM\\n\");\n"
             "  ::CoUninitialize();\n"
-            "  ::OutputDebugStringW(L\"Starport: COM released; returning from wWinMain\\n\");\n"
+            f"{_NO_CRT_SHUTDOWN_COMMENT}"
+            "  ::TerminateProcess(::GetCurrentProcess(), static_cast<UINT>(exit_code));\n"
             "  return exit_code;"
         )
 
