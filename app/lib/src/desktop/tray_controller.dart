@@ -140,6 +140,7 @@ class TrayController with TrayListener, WindowListener {
   /// WebView2 残留窗，否则它会留在桌面吞点击。
   @override
   void onWindowClose() async {
+    if (_quitting) return; // 退出路径主动发送的 WM_CLOSE 不再收托盘。
     if (hideToTray()) {
       try {
         _wasMaximized = await windowManager.isMaximized();
@@ -281,10 +282,9 @@ class TrayController with TrayListener, WindowListener {
     if (_quitting) return;
     _quitting = true;
 
-    // 第一个 await 前就装 watchdog，避免插件 Future 卡住时永远走不到硬退出；
-    // 留出正常窗口/托盘 teardown 的时间，清理完成后再切回原有的 300ms 兜底。
-    final Timer quitWatchdog =
-        Timer(const Duration(seconds: 5), () => hardExit(0));
+    _resyncDebounce?.cancel();
+    // 只设一个兜底；正常关闭会自行结束进程，无需再安排短延时强退。
+    Timer(const Duration(seconds: 5), () => hardExit(0));
 
     // 先落盘再拆窗口：配置与下载记录在退出路径上同步 flush。
     try {
@@ -305,23 +305,16 @@ class TrayController with TrayListener, WindowListener {
       // 退出路径上任何托盘问题都不该挡住退出本身。
     }
     try {
-      await windowManager.destroy();
+      if (Platform.isWindows) {
+        // Windows 插件的 destroy() 直接投递 WM_QUIT。走正常 WM_CLOSE，
+        // 让 Runner 在消息循环退出、COM 反初始化之前销毁 Flutter/WebView。
+        await windowManager.setPreventClose(false);
+        await windowManager.close();
+      } else {
+        await windowManager.destroy();
+      }
     } catch (_) {
-      // 窗口销毁异常也不能取消已设好的硬退出兜底。
+      // 插件调用失败时，仍由已启动的退出计时器兜底。
     }
-
-    // 进程级收尸（Windows）：引擎优雅关闭靠不住 —— WebView2 子进程树自己
-    // 退要 0.5~2s，且 Chromium 的 browser 进程会把自己 detach 出 Job，
-    // Windows 按父子链收树漏收的就是孤儿。只杀本进程后代里的
-    // msedgewebview2.exe，不误伤别家 WebView2 宿主。
-    try {
-      WebViewWindowGuard.instance.killDescendants();
-    } catch (_) {
-      // 清理失败不挡已设好的硬退出兜底。
-    }
-
-    quitWatchdog.cancel();
-    // destroy() 返回 ≠ 进程已退。给引擎 300ms 正常结束；仍存活时直接硬切。
-    Timer(const Duration(milliseconds: 300), () => hardExit(0));
   }
 }
