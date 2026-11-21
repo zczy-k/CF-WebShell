@@ -199,8 +199,38 @@ class SyncPairCode {
   }
 }
 
+/// 所有同步请求共用一个 [HttpClient]：连接池 + TLS 会话复用。
+///
+/// 以前每个请求 new 一个、`finally` 里 `close(force: true)` —— 那等于每发一条
+/// 请求就主动把 keep-alive 连接撕掉，下一轮同步再从头走一遍 DNS + TCP + TLS
+/// 握手。一轮同步要发好几条（head / doc / put / devices…），省下来的正是这些
+/// 握手，跨境或移动网络下一条握手就是几百毫秒。
+///
+/// 超时语义不受影响：这里的超时是**每次请求**上用 `.timeout()` 包的，
+/// 不是 client 的属性；client 上只留连接超时与代理策略这两项全局设置。
+HttpClient _sharedHttpClient = _newSharedHttpClient();
+
+HttpClient _newSharedHttpClient() => HttpClient()
+  ..connectionTimeout = const Duration(seconds: 5)
+  // Cloudflare 上跑的 Worker 不需要跟随重定向；跟了反而会把 Bearer 头
+  // 带到别的主机上。
+  ..findProxy = (Uri _) => 'DIRECT';
+
 /// 真正的 HTTP 客户端。
 class SyncClient {
+  /// 关掉并重建共享连接池。**生产代码不要调**：这份客户端的生存期就是进程的
+  /// 生存期，Windows 退出走 TerminateProcess，socket 由系统统一回收。
+  ///
+  /// 它只为一件事存在：单测里每个用例都会 `HttpServer.close(force: true)`
+  /// 关掉自己起的假云端并释放端口，而**端口会被下一个用例复用** —— 连接池里
+  /// 那条"指向已经关掉的服务器"的空闲连接不能带过去。用例的 tearDown 调一次，
+  /// 每个用例都从干净连接池开始。
+  static Future<void> closeSharedClient() async {
+    final HttpClient dying = _sharedHttpClient;
+    _sharedHttpClient = _newSharedHttpClient();
+    await dying.close();
+  }
+
   SyncClient(this.credentials, {this.timeout = const Duration(seconds: 15)});
 
   final SyncCredentials credentials;
@@ -409,14 +439,10 @@ class SyncClient {
     Set<int> allowStatus = const <int>{},
   }) async {
     final Uri uri = Uri.parse('${normalizeEndpoint(endpoint)}$path');
-    final HttpClient client = HttpClient()
-      ..connectionTimeout = const Duration(seconds: 5)
-      // Cloudflare 上跑的 Worker 不需要跟随重定向；跟了反而会把 Bearer 头
-      // 带到别的主机上。
-      ..findProxy = ((Uri _) => 'DIRECT');
 
     try {
-      final HttpClientRequest req = await client.openUrl(method, uri).timeout(timeout);
+      final HttpClientRequest req =
+          await _sharedHttpClient.openUrl(method, uri).timeout(timeout);
       req.headers.set(HttpHeaders.acceptHeader, 'application/json');
       final String? userAgent = _ua();
       if (userAgent != null) req.headers.set(HttpHeaders.userAgentHeader, userAgent);
@@ -450,8 +476,6 @@ class SyncClient {
       throw SyncException('连不上同步服务：${e.osError?.message ?? e.message}');
     } catch (e) {
       throw SyncException('同步请求失败：$e');
-    } finally {
-      client.close(force: true);
     }
   }
 

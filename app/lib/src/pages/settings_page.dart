@@ -449,7 +449,7 @@ class _SettingsPageState extends State<SettingsPage> {
         leading: Icon(Icons.link_off, color: Theme.of(context).colorScheme.error),
         title: Text('断开同步', style: TextStyle(color: Theme.of(context).colorScheme.error)),
         subtitle: const Text('这台设备停止同步，站点列表保持现状；别的设备不受影响'),
-        onTap: _disconnectSync,
+        onTap: _busySync ? null : _disconnectSync,
       ),
     ];
   }
@@ -806,9 +806,14 @@ class _SettingsPageState extends State<SettingsPage> {
                             : TextButton(
                                 onPressed: () async {
                                   Navigator.of(dialogContext).pop();
+                                  // 这里后面是两发请求（revoke + 重新列设备），
+                                  // 不设忙碌态的话最长 15s×2 内界面毫无反应，
+                                  // 用户只会以为"移除没点上"再点一次。
+                                  setState(() => _busySync = true);
                                   final String? revokeErr =
                                       await state.syncRevokeDevice(d.id);
                                   if (!mounted) return;
+                                  setState(() => _busySync = false);
                                   _snack(revokeErr ?? '已移除 ${d.displayName}');
                                 },
                                 child: const Text('移除'),
@@ -849,9 +854,17 @@ class _SettingsPageState extends State<SettingsPage> {
       ),
     );
     if (ok != true) return;
-    await state.syncDisconnect();
+    // 断开不只是改内存：清凭证要走一次加密 + 整份 secrets.bin 重写，配置还要
+    // 落一次盘。不设忙碌态的话，这中间界面看起来就像点了没反应。
+    setState(() => _busySync = true);
+    try {
+      await state.syncDisconnect();
+    } finally {
+      // 凭证存储坏掉时 disconnect 会抛（DPAPI / 文件锁）：忙碌态不摘的话，
+      // 整个同步区间的按钮就永久灰着，比"点了没反应"更难恢复。
+      if (mounted) setState(() => _busySync = false);
+    }
     if (!mounted) return;
-    setState(() {});
     _snack('已断开同步');
   }
 

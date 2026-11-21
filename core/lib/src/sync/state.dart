@@ -156,11 +156,19 @@ class SyncStateFile {
 
   static const String defaultFileName = 'starport.sync.json';
 
+  /// 上一次真正写进磁盘的那份内容（null = 这个实例还没写过）。
+  String? _lastSavedText;
+
   void save(SyncLocalState state) {
     try {
       final Directory dir = file.parent;
       if (!dir.existsSync()) dir.createSync(recursive: true);
       final String text = jsonEncode(state.toJson());
+      // 内容一模一样就别动了。同步的"双方都没变化"分支（见 SyncEngine._run）
+      // 每轮都会走到这里，以前每轮都要拷一次 .bak + 全量重写 + fsync —— 那只是
+      // 把同样的字节再落一遍盘。文件被外部删掉时 `_lastSavedText` 还在，
+      // 所以要连着 existsSync 一起判，不能只比字符串。
+      if (text == _lastSavedText && file.existsSync()) return;
       // 先把上一版留成 .bak：缓存文件要是哪天写坏了（断电、杀毒软件截断），
       // 下次启动能退回上一份，而不是从"什么都没有"重新猜合并基准。
       try {
@@ -175,6 +183,9 @@ class SyncStateFile {
       // rename 要是被文件锁挡回来，原来的文件已经没了 —— 那是真丢基准。
       // 缓存文件只有几十 KB，覆盖写的原子性够用（进程被强杀也会留下完整旧内容）。
       file.writeAsStringSync(text, flush: true);
+      // 写在成功之后才记账：目录只读 / 磁盘满 / 文件被占用时不能把这份内容
+      // 当成"已经在盘上了"。
+      _lastSavedText = text;
     } catch (_) {
       // 目录只读 / 磁盘满 / 文件被占用（Windows 上很常见）：写不进缓存不该
       // 让整轮同步失败。最坏情况是下次启动没了合并基准，退化成一整份覆盖 ——

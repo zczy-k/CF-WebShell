@@ -118,10 +118,25 @@ class TrayController with TrayListener, WindowListener {
     windowManager.addListener(this);
     trayManager.addListener(this);
 
-    // tray_manager 只吃磁盘路径：把 assets 里的图标解到数据目录再用。
-    // 用 appDataDir() 而不是系统临时目录 —— 便携版下所有运行数据都在程序目录，
-    // 连这个解出来的图标也一样，C 盘不留东西。
+    // 托盘本体（解图标到数据目录 + setIcon/setToolTip/setContextMenu 三次
+    // channel 调用）不参与首帧渲染，放到后台去做 —— 这几步排在 runApp 之前
+    // 时，用户看到窗口内容的时间就往后推了这些步的总和。
+    //
+    // 上面三行必须留在这里，尤其 `setPreventClose(true)`：它没立起来的窗口
+    // 期里用户点关闭 = 真退出，而不是收进托盘。
+    unawaited(_setupTray());
+  }
+
+  /// 托盘图标与菜单。晚几毫秒不影响任何行为，所以不在启动关键路径上等它。
+  Future<void> _setupTray() async {
+    // 退出已经开始就别再往托盘上装东西：`_quit` 里 destroy 过一次，晚到的
+    // setIcon 会把图标又凭空挂回来（要等鼠标划过才消失）。整段吞异常同理 ——
+    // 这段跑在后台，抛出去就是无人处理的异步错误。
+    if (_quitting) return;
     try {
+      // tray_manager 只吃磁盘路径：把 assets 里的图标解到数据目录再用。
+      // 用 appDataDir() 而不是系统临时目录 —— 便携版下所有运行数据都在程序目录，
+      // 连这个解出来的图标也一样，C 盘不留东西。
       final ByteData data = await rootBundle.load('assets/tray_icon.ico');
       final Directory dir = await appDataDir();
       final File icon = File(joinPath(dir.path, 'starport_tray.ico'));
@@ -130,16 +145,16 @@ class TrayController with TrayListener, WindowListener {
         flush: true,
       );
       await trayManager.setIcon(icon.path);
+      await trayManager.setToolTip(appName);
+      // tray_manager 0.5.x 的 API 叫 setContextMenu（不是 setMenu）
+      await trayManager.setContextMenu(Menu(items: <MenuItem>[
+        MenuItem(key: 'show', label: '打开 $appName'),
+        MenuItem.separator(),
+        MenuItem(key: 'quit', label: '退出'),
+      ]));
     } catch (_) {
       // 图标解不出来不挡启动：托盘里没图标，但窗口行为不受影响。
     }
-    await trayManager.setToolTip(appName);
-    // tray_manager 0.5.x 的 API 叫 setContextMenu（不是 setMenu）
-    await trayManager.setContextMenu(Menu(items: <MenuItem>[
-      MenuItem(key: 'show', label: '打开 $appName'),
-      MenuItem.separator(),
-      MenuItem(key: 'quit', label: '退出'),
-    ]));
   }
 
   // ------------------------------------------------------------- 窗口事件

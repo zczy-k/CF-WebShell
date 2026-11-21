@@ -207,11 +207,21 @@ class ShellState extends ChangeNotifier {
   // ------------------------------------------------------------------ 配置
 
   void saveSoon() {
-    _configTimer?.cancel();
-    _configTimer = Timer(const Duration(milliseconds: 400), saveNow);
+    _saveConfigSoon();
     // 设置页里改的偏好（省流、托盘、并发数）都走这里 —— 挂在这儿一处就够了，
     // 不用在每个开关的 onChanged 里各补一次。
     _touchSync();
+  }
+
+  /// 只推迟落盘，不碰同步标记。
+  ///
+  /// 给"每次点一下都会触发"的路径用（切站点、图标抓完回填）。全量 JSON 重编码
+  /// + fsync 放在这一类改动上是纯开销：改的是同一个文件的另一格，晚 400ms 写
+  /// 没有任何一致性要求。退出路径（`onBeforeQuit` / [dispose]）都调 [saveNow]
+  /// 兜底，防抖窗口内的改动不会丢。
+  void _saveConfigSoon() {
+    _configTimer?.cancel();
+    _configTimer = Timer(const Duration(milliseconds: 400), saveNow);
   }
 
   void saveNow() {
@@ -254,9 +264,13 @@ class ShellState extends ChangeNotifier {
   }
 
   /// 打开站点：更新"最近使用"，顺手把它设为当前站点。
+  ///
+  /// 落盘走防抖：这是每次点标签都会走的路径，以前每点一次就同步重写一遍整份
+  /// 配置（全量 pretty-print 编码 + 建临时目录 + fsync + rename），点下去那一下
+  /// 的迟滞感就是它。"最近使用"顺序没有必须立刻落盘的理由，退出前的 flush 兜底。
   void openSite(SiteProfile site) {
     config.touch(site);
-    saveNow();
+    _saveConfigSoon();
     notifyListeners();
   }
 
@@ -265,7 +279,9 @@ class ShellState extends ChangeNotifier {
     final String? path = await icons.fetch(site);
     if (path == null) return;
     site.iconPath = path;
-    saveNow();
+    // 防抖：`iconPath` 是本机文件路径、不参与同步，晚一点写盘没有任何影响，
+    // 但它常常正好发生在切站点的那一刻，别在这儿再插一次全量写盘。
+    _saveConfigSoon();
     notifyListeners();
   }
 
