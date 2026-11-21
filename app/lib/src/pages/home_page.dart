@@ -23,12 +23,21 @@ class HomePage extends StatelessWidget {
     final Branding branding = state.branding;
 
     return Scaffold(
-      // 大标题放在 body 里，AppBar 只留右侧两个动作。
+      // 大标题放在 body 里，AppBar 只留右侧动作。
       // 小字标题（17）和大字标题（30）上下堆一起是"没设计过"最典型的痕迹；
       // iOS / Linear / 微信新版的分层都是**只留一个标题层级**，其余交给留白。
       appBar: AppBar(
         toolbarHeight: 48,
         actions: <Widget>[
+          // 「添加站点」从右下角的胶囊挪到这里：一颗和下载/设置同族的图标按钮。
+          // 空列表时不出现 —— 那时候页面中间已经有那颗 FilledButton，两处都给
+          // 等于同一个动作摆两个入口。
+          if (branding.allowAddSite && config.sites.isNotEmpty)
+            IconButton(
+              tooltip: '添加站点',
+              onPressed: () => _addSite(context),
+              icon: const Icon(Icons.add),
+            ),
           IconButton(
             tooltip: '下载',
             onPressed: () => _push(context, DownloadsPage(state: state)),
@@ -51,13 +60,6 @@ class HomePage extends StatelessWidget {
             ? _EmptySites(branding: branding, onAdd: () => _addSite(context))
             : _SiteList(state: state, title: branding.appName),
       ),
-      floatingActionButton: branding.allowAddSite && config.sites.isNotEmpty
-          ? FloatingActionButton.extended(
-              onPressed: () => _addSite(context),
-              icon: const Icon(Icons.add_rounded),
-              label: const Text('添加站点'),
-            )
-          : null,
     );
   }
 
@@ -187,9 +189,9 @@ class _SiteList extends StatelessWidget {
     final TextTheme text = Theme.of(context).textTheme;
 
     return ListView.builder(
-      padding: const EdgeInsets.fromLTRB(20, 2, 20, 110),
-      // 0 是大标题头部，最后一条是底部提示，中间才是站点卡片。
-      itemCount: sites.length + 2,
+      padding: const EdgeInsets.fromLTRB(20, 2, 20, 24),
+      // 0 是大标题头部，之后每条一个站点卡片。
+      itemCount: sites.length + 1,
       itemBuilder: (BuildContext context, int index) {
         if (index == 0) {
           return Padding(
@@ -209,16 +211,6 @@ class _SiteList extends StatelessWidget {
                   style: text.bodySmall?.copyWith(color: colors.onSurfaceVariant),
                 ),
               ],
-            ),
-          );
-        }
-        if (index == sites.length + 1) {
-          return Padding(
-            padding: const EdgeInsets.only(top: 14),
-            child: Text(
-              '长按站点可以编辑名称、请求头、Basic Auth，或者清掉登录态。',
-              textAlign: TextAlign.center,
-              style: text.bodySmall?.copyWith(color: colors.onSurfaceVariant),
             ),
           );
         }

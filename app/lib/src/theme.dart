@@ -256,20 +256,6 @@ class AppTheme {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         ),
       ),
-      floatingActionButtonTheme: FloatingActionButtonThemeData(
-        backgroundColor: colors.primary,
-        foregroundColor: colors.onPrimary,
-        elevation: 2,
-        focusElevation: 2,
-        hoverElevation: 3,
-        highlightElevation: 1,
-        shape: const StadiumBorder(),
-        extendedTextStyle: const TextStyle(
-          fontSize: 14.5,
-          fontWeight: FontWeight.w600,
-          letterSpacing: 0,
-        ),
-      ),
       dialogTheme: DialogThemeData(
         backgroundColor: cardBg,
         surfaceTintColor: Colors.transparent,
