@@ -388,8 +388,32 @@ def patch_notify(manifest_path: str, kotlin_dir: str) -> None:
     print("已改：", mpath)
 
 
+def patch_windows_window_messages(path: pathlib.Path) -> None:
+    source = path.read_text(encoding="utf-8")
+    marker = "// Starport: do not re-enter Flutter on child destruction."
+    if marker in source:
+        return
+
+    # A synchronous WM_PARENTNOTIFY/WM_DESTROY can arrive while Flutter's
+    # native controller still exists but its view is already being destroyed.
+    # This notification needs only Win32 default handling, not plugin delegates.
+    pattern = r"(FlutterWindow::MessageHandler\s*\([^)]*\)\s*noexcept\s*\{)"
+    guard = (
+        f"\n  {marker}\n"
+        "  if (message == WM_PARENTNOTIFY && LOWORD(wparam) == WM_DESTROY) {\n"
+        "    return ::DefWindowProc(hwnd, message, wparam, lparam);\n"
+        "  }\n"
+    )
+    patched, count = re.subn(pattern, lambda m: m[0] + guard, source)
+    if count != 1:
+        raise RuntimeError(f"Expected one FlutterWindow::MessageHandler in {path}")
+    path.write_text(patched, encoding="utf-8")
+    print("已改：", path)
+
+
 def patch_windows(dir_path: str, app_name: str) -> None:
     d = pathlib.Path(dir_path)
+    patch_windows_window_messages(d / "runner" / "flutter_window.cpp")
     # 中文写进 C++ 源文件有编码风险（rc.exe / MSVC 对源码编码的解释并不统一），
     # 所以转成 \uXXXX 转义：源码保持纯 ASCII，运行时正确。
     escaped = "".join(c if ord(c) < 128 else "\\u%04x" % ord(c) for c in app_name)
